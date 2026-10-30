@@ -24,6 +24,7 @@
 # Local tools, screenshots, generated reports and temporary files
 /.trae-html-share-packages/
 /.workbuddy/
+/.zcode/
 /test-report-assets/
 /tmp-*/
 /server/tmp_*
