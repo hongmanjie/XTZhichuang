@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, Popconfirm, message, Checkbox } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Card, Tag } from 'antd'
 import { api } from '../../api/request'
 
 const AUTHORITIES = [
@@ -16,11 +15,10 @@ const AUTHORITIES = [
   { key: 'partner', name: '合作伙伴' },
 ]
 
+// 只读展示。角色的 permissions 配置后端并未消费（实际访问控制基于管理员/成员身份），
+// 因此不提供新增/编辑/删除入口，避免"配置了却不生效"的误导。
 export default function RoleManage() {
   const [list, setList] = useState<any[]>([])
-  const [editOpen, setEditOpen] = useState(false)
-  const [editing, setEditing] = useState<any>(null)
-  const [form] = Form.useForm()
 
   useEffect(() => { fetchData() }, [])
 
@@ -29,55 +27,18 @@ export default function RoleManage() {
     setList(data)
   }
 
-  const handleSave = async () => {
-    const values = await form.validateFields()
-    await api.saveRole({ id: editing?.id, ...values })
-    message.success('保存成功')
-    setEditOpen(false)
-    form.resetFields()
-    fetchData()
-  }
-
-  const handleDelete = async (id: number) => {
-    await api.deleteRole({ id })
-    message.success('删除成功')
-    fetchData()
-  }
-
   return (
     <div className="mx-auto max-w-5xl">
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">角色管理</h1>
-          <p className="mt-1 text-xs text-gray-400">配置角色与功能权限，控制成员可访问的模块</p>
-        </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-          setEditing(null)
-          form.resetFields()
-          setEditOpen(true)
-        }}>
-          新增角色
-        </Button>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-gray-800">角色管理</h1>
+        <p className="mt-1 text-xs text-gray-400">
+          查看系统内置角色。功能访问控制当前由管理员/成员身份决定，此处权限配置暂未启用。
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {list.map((role) => (
-          <Card
-            key={role.id}
-            className="!rounded-2xl"
-            actions={[
-              <Button key="edit" type="link" size="small" onClick={() => {
-                setEditing(role)
-                form.setFieldsValue({ name: role.name, description: role.description, permissions: role.permissions })
-                setEditOpen(true)
-              }}>
-                编辑
-              </Button>,
-              <Popconfirm key="del" title="确认删除该角色？" onConfirm={() => handleDelete(role.id)}>
-                <Button type="link" size="small" danger>删除</Button>
-              </Popconfirm>,
-            ]}
-          >
+          <Card key={role.id} className="!rounded-2xl">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-base font-medium text-gray-800">{role.name}</h3>
               {role.code === 'super_admin' && <Tag color="purple">系统内置</Tag>}
@@ -91,29 +52,6 @@ export default function RoleManage() {
           </Card>
         ))}
       </div>
-
-      <Modal
-        open={editOpen}
-        onCancel={() => setEditOpen(false)}
-        onOk={handleSave}
-        title={editing ? '编辑角色' : '新增角色'}
-      >
-        <Form form={form} layout="vertical" className="pt-2">
-          <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="description" label="角色描述">
-            <Input placeholder="简要描述该角色的职责" />
-          </Form.Item>
-          <Form.Item name="permissions" label="功能权限">
-            <Checkbox.Group className="grid grid-cols-2 gap-2">
-              {AUTHORITIES.map((a) => (
-                <Checkbox key={a.key} value={a.key}>{a.name}</Checkbox>
-              ))}
-            </Checkbox.Group>
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   )
 }

@@ -67,6 +67,7 @@ const del = <T = any>(url: string): Promise<T> => request.delete(url) as unknown
 export const api = {
   // 认证
   login: (data: { account: string; password: string }) => post('/login', data),
+  register: (data: { phone: string; password: string; name?: string }) => post('/register', data),
   loginInit: () => get('/login/init'),
   logout: () => post('/logout'),
   mediaSession: () => post('/media/session'),
@@ -90,8 +91,6 @@ export const api = {
   memberStatus: (data: any) => post('/team/member/status', data),
   deleteMember: (data: any) => post('/team/member/delete', data),
   roles: () => get('/role/list'),
-  saveRole: (data: any) => post('/role/save', data),
-  deleteRole: (data: any) => post('/role/delete', data),
   authorities: () => get('/role/authority/info'),
   partnerInfo: () => get('/partner/info'),
 

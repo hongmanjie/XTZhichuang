@@ -48,6 +48,44 @@ router.post('/login', asyncHandler(async (req, res) => {
   res.json(success({ token, userInfo: safeUser }))
 }))
 
+// 手机号注册（简化版：未接入短信验证码）。注册即自动登录，新用户赠送 500 AI 点数。
+const REGISTER_GIFT_POINTS = 500
+
+router.post('/register', asyncHandler(async (req, res) => {
+  const { phone, password, name } = req.body
+  if (typeof phone !== 'string' || !/^1[3-9]\d{9}$/.test(phone.trim())) {
+    return res.json(fail('请输入正确的 11 位手机号', 400))
+  }
+  if (typeof password !== 'string' || password.length < 6 || password.length > 32) {
+    return res.json(fail('密码长度为 6-32 位', 400))
+  }
+  const account = phone.trim()
+  const nickname = typeof name === 'string' && name.trim() ? name.trim().slice(0, 20) : `用户${account.slice(-4)}`
+  const exists = db.prepare('SELECT id FROM users WHERE account = ? OR phone = ?').get(account, account)
+  if (exists) return res.json(fail('该手机号已注册，请直接登录', 400))
+  const role = db.prepare("SELECT id FROM roles WHERE code = 'creator'").get() || { id: 3 }
+
+  let inviteCode = ''
+  for (let i = 0; i < 5 && !inviteCode; i++) {
+    const candidate = 'Y' + String(Math.floor(100000 + Math.random() * 900000))
+    if (!db.prepare('SELECT id FROM users WHERE invite_code = ?').get(candidate)) inviteCode = candidate
+  }
+
+  const hashed = await bcrypt.hash(password, 10)
+  const info = db.prepare(`
+    INSERT INTO users (account, password, name, phone, role_id, ai_points, invite_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(account, hashed, nickname, account, role.id, REGISTER_GIFT_POINTS, inviteCode)
+  db.prepare('INSERT INTO consumption_logs (user_id, module, action, points, remark) VALUES (?, ?, ?, ?, ?)')
+    .run(info.lastInsertRowid, 'register', '注册赠送', REGISTER_GIFT_POINTS, '新用户注册赠送')
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)
+  const token = signToken(user)
+  setMediaCookie(res, token)
+  const { password: _p, ...safeUser } = user
+  res.json(success({ token, userInfo: safeUser }))
+}))
+
 // 获取当前用户信息
 router.get('/user/info', authRequired, (req, res) => {
   const { password, ...safeUser } = req.user

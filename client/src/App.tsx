@@ -1,5 +1,8 @@
+import { useEffect, type ReactNode } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { message } from 'antd'
 import { useUserStore } from './stores/userStore'
+import { useIsAdmin } from './utils/access'
 import MainLayout from './layouts/MainLayout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -39,6 +42,16 @@ import UserInfoPage from './pages/UserInfo'
 import Blog from './pages/Blog'
 import FeedbackPage from './pages/Feedback'
 import NotFound from './pages/NotFound'
+
+// 管理页路由守卫：服务端 adminRequired 兜底，这里负责入口重定向与提示
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const isAdmin = useIsAdmin()
+  useEffect(() => {
+    if (!isAdmin) message.warning('该页面仅管理员可访问')
+  }, [isAdmin])
+  if (!isAdmin) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
 
 function App() {
   // 必须订阅路由位置：重定向后 Router 状态变化需要驱动 App 重新渲染，
@@ -80,13 +93,13 @@ function App() {
         <Route path="material_data/dataInfo" element={<DataInfo />} />
         <Route path="material_data/adsVideoData" element={<DataInfo />} />
         <Route path="material_data/authManager" element={<AuthManager />} />
-        <Route path="setting/userManage" element={<UserManage />} />
-        <Route path="setting/roleManage" element={<RoleManage />} />
-        <Route path="setting/aiPointManage" element={<AIPointManage />} />
+        <Route path="setting/userManage" element={<RequireAdmin><UserManage /></RequireAdmin>} />
+        <Route path="setting/roleManage" element={<RequireAdmin><RoleManage /></RequireAdmin>} />
+        <Route path="setting/aiPointManage" element={<RequireAdmin><AIPointManage /></RequireAdmin>} />
         <Route path="setting/consumption" element={<Consumption />} />
-        <Route path="setting/logManage" element={<LogManage />} />
+        <Route path="setting/logManage" element={<RequireAdmin><LogManage /></RequireAdmin>} />
         <Route path="setting/msgCenter" element={<MessageCenter />} />
-        <Route path="team/mine" element={<TeamManage />} />
+        <Route path="team/mine" element={<RequireAdmin><TeamManage /></RequireAdmin>} />
         <Route path="team/project" element={<ProjectManage />} />
         <Route path="partner" element={<Partner />} />
         <Route path="charge" element={<Charge />} />

@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons'
 import { Avatar, Badge, Dropdown, Popover, List, Tag, Button, Tooltip, Modal } from 'antd'
 import { useUserStore } from '../stores/userStore'
+import { useIsAdmin } from '../utils/access'
 import { api } from '../api/request'
 import BrandLogo from '../components/BrandLogo'
 
@@ -63,13 +64,13 @@ const MENUS = [
     icon: <SettingOutlined />,
     label: '全部设置',
     children: [
-      { key: '/setting/userManage', label: '用户管理' },
-      { key: '/setting/roleManage', label: '角色管理' },
-      { key: '/setting/aiPointManage', label: 'AI点数管理' },
+      { key: '/setting/userManage', label: '用户管理', adminOnly: true },
+      { key: '/setting/roleManage', label: '角色管理', adminOnly: true },
+      { key: '/setting/aiPointManage', label: 'AI点数管理', adminOnly: true },
       { key: '/setting/consumption', label: '消费记录' },
-      { key: '/setting/logManage', label: '日志管理' },
+      { key: '/setting/logManage', label: '日志管理', adminOnly: true },
       { key: '/team/project', label: '团队管理' },
-      { key: '/team/mine', label: '部门与成员' },
+      { key: '/team/mine', label: '部门与成员', adminOnly: true },
       { key: '/partner', label: '合作伙伴' },
       { key: '/setting/msgCenter', label: '消息中心' },
       { key: '/feedback', label: '意见反馈' },
@@ -194,6 +195,12 @@ export default function MainLayout() {
 
   const isTrial = !userInfo?.vip_level || userInfo?.vip_level === 'trial'
 
+  // 管理入口仅管理员可见（与服务端 adminRequired 对齐）
+  const isAdmin = useIsAdmin()
+  const visibleMenus = MENUS.map((menu: any) =>
+    menu.children ? { ...menu, children: menu.children.filter((c: any) => !c.adminOnly || isAdmin) } : menu,
+  ).filter((menu: any) => (!menu.adminOnly || isAdmin) && (!menu.children || menu.children.length > 0))
+
   return (
     <div className="flex h-screen overflow-hidden bg-mf-bg text-mf-text">
       {/* ============ 侧边栏 ============ */}
@@ -208,7 +215,7 @@ export default function MainLayout() {
 
         {/* 菜单 */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {MENUS.map((menu: any) => {
+          {visibleMenus.map((menu: any) => {
             if (menu.children) {
               const isOpen = openKeys.includes(menu.key)
               const hasActive = menu.children.some((c: any) => selectedKey === c.key)
