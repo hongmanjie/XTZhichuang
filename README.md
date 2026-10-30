@@ -13,6 +13,27 @@
 
 前端生产构建使用 `cd client && npm run build`，后端测试使用 `cd server && npm test`。本机运行记录、数据库、上传素材和环境密钥均不在源码仓库内，需要在新环境单独配置或迁移。
 
-## Linux 部署
+## Linux 部署(192.168.86.107)
 
-仓库包含 Dockerfile 和 Compose 配置，但镜像尚未在 Linux 上构建和验收。部署、数据迁移及上线前的检查请先阅读实施记录，不要直接将开发环境对外开放。
+服务器使用 Docker Compose 部署,目录 `/data_ssd/xtzc`,访问地址 `http://192.168.86.107:3010/xtzc/`(子路径访问,也兼容根路径直连)。容器以挂载方式运行:
+
+| 服务器目录 | 容器内路径 | 内容 |
+|---|---|---|
+| `data/` | `/app/server/data` | SQLite 数据库 |
+| `uploads/` | `/app/server/uploads` | 上传素材 |
+| `server-src/` | `/app/server/src` | 服务端源码(挂载更新) |
+| `client-dist/` | `/app/client/dist` | 前端构建产物(挂载更新) |
+
+环境变量在目录下 `.env` 与 compose 中配置:`MODELGATE_BASE`(模型网关地址,需保留 `/xt-platform/models/v1` 路径)、`APP_BASE_PATH=/xtzc`(子路径)、`JWT_SECRET`、`MODELGATE_API_KEY`、`INDEX_TTS_BASE_URL`。修改环境变量后需 `docker compose up -d` 重建容器(`restart` 不会重读环境变量)。
+
+## 更新部署(日常)
+
+代码更新不需要重建镜像,在仓库根目录执行:
+
+```bash
+npm run deploy:107
+```
+
+脚本自动完成:前端构建(含 `/xtzc/` 子路径)→ 打包 `server-src` 与 `client-dist`(自动排除约 200MB 静态样例图,更新包约 1MB)→ scp 传输 → 远端 `update.sh` 解包、重启并健康检查。过程中需输入一次 .107 的 SSH 密码,配置 SSH 公钥后免密。
+
+仅当依赖变化(`package.json`、`requirements-cutout.txt`、`Dockerfile`)时才需要重建镜像并重新导出导入;更新流程与首次部署、数据迁移的完整说明见实施记录与 Linux 部署说明。不要将开发环境直接对外开放,上线前按未完成事项台账完成验收。
