@@ -1,0 +1,40 @@
+# Local dependencies, builds and Python virtual environments
+**/node_modules/
+**/.venv*/
+**/__pycache__/
+*.py[cod]
+*.tsbuildinfo
+/client/dist/
+
+# Local credentials and runtime data
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+/server/data/
+/server/uploads/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+
+# Local tools, screenshots, generated reports and temporary files
+/.trae-html-share-packages/
+/.workbuddy/
+/test-report-assets/
+/tmp-*/
+/server/tmp_*
+/docs/tests/
+/docs/*.html
+/tools/screenshot/
+/server/mg_test_*
+/ModelGate_8模型接口调用速查_20261026.md
+/ModelGate_8模型统一接口调用手册_20261026.pdf
+/ModelGate千条内容生产与电商AI深度验证报告.html
+/*.html
+/电商提示词库.json
+/bug01.md
+

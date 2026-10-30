@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_54" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#2E1065"/><stop offset="0.55" stop-color="#6D28D9"/><stop offset="1" stop-color="#A855F7"/></linearGradient>
+  <radialGradient id="gl_55" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#D8B4FE" stop-opacity="0.55"/><stop offset="1" stop-color="#D8B4FE" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_56" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#EC4899"/></linearGradient>
+  <pattern id="dot_57" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#fff" opacity="0.1"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_54)"/>
+<rect width="360" height="640" fill="url(#dot_57)"/>
+
+<circle cx="180" cy="430" r="190" fill="url(#gl_55)"/>
+<path d="M62 108 Q63.8 116.2 72 118 Q63.8 119.8 62 128 Q60.2 119.8 52 118 Q60.2 116.2 62 108Z" fill="#E9D5FF" opacity="0.9"/><path d="M304 121 Q305.62 128.38 313 130 Q305.62 131.62 304 139 Q302.38 131.62 295 130 Q302.38 128.38 304 121Z" fill="#F0ABFC" opacity="0.8"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.35)" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">潮流新季</text>
+<text x="182" y="162" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#000" opacity="0.25" text-anchor="middle">潮流新季</text>
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FFF7ED" text-anchor="middle" opacity="1">潮流新季</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">焕新衣橱</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="rgba(255,255,255,.72)" text-anchor="middle" opacity="1">设计师联名 · 穿出高级感</text>
+<defs><linearGradient id="pd_53" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E9D5FF"/><stop offset="1" stop-color="#A855F7"/></linearGradient></defs>
+  <ellipse cx="180" cy="506" rx="81" ry="9" fill="#000" opacity="0.25"/>
+  <path d="M180 311 q0 -16 14 -16" stroke="#C9A24B" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M133.2 341.6 L180 323.6 L226.8 341.6" stroke="#C9A24B" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M153 347 Q140.4 392 124.19999999999999 464 Q180 487.4 235.8 464 Q219.6 392 207 347 L190.8 339.79999999999995 Q180 350.6 169.2 339.79999999999995Z" fill="url(#pd_53)"/>
+  <path d="M144 392 Q180 410 216 392" stroke="#fff" stroke-width="2.5" opacity="0.35" fill="none"/>
+<path d="M66 488 Q67.44 494.56 74 496 Q67.44 497.44 66 504 Q64.56 497.44 58 496 Q64.56 494.56 66 488Z" fill="#F0ABFC" opacity="0.8"/><path d="M306 461 Q307.62 468.38 315 470 Q307.62 471.62 306 479 Q304.38 471.62 297 470 Q304.38 468.38 306 461Z" fill="#E9D5FF" opacity="0.7"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(0,0,0,.3)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="rgba(255,255,255,.7)" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#FDE68A">¥299</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_56)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">逛新款</text>
+</svg>

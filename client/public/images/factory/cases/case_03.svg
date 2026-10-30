@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_14" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#1E1B4B"/><stop offset="0.55" stop-color="#5B21B6"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
+  <radialGradient id="gl_15" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#C4B5FD" stop-opacity="0.55"/><stop offset="1" stop-color="#C4B5FD" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_16" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/></linearGradient>
+  <pattern id="dot_17" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#fff" opacity="0.1"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_14)"/>
+<rect width="360" height="640" fill="url(#dot_17)"/>
+
+<circle cx="180" cy="430" r="190" fill="url(#gl_15)"/>
+<path d="M58 110 Q59.8 118.2 68 120 Q59.8 121.8 58 130 Q56.2 121.8 48 120 Q56.2 118.2 58 110Z" fill="#C4B5FD" opacity="0.9"/><path d="M306 138 Q308.16 147.84 318 150 Q308.16 152.16 306 162 Q303.84 152.16 294 150 Q303.84 147.84 306 138Z" fill="#E9D5FF" opacity="0.7"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.35)" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">新品首发</text>
+<text x="182" y="162" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#000" opacity="0.25" text-anchor="middle">焕新上市</text>
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FFF7ED" text-anchor="middle" opacity="1">焕新上市</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">品质之选</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="rgba(255,255,255,.72)" text-anchor="middle" opacity="1">影棚级质感 一拍即合</text>
+<defs><linearGradient id="pp_13" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C4B5FD"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
+  <ellipse cx="180" cy="498" rx="74.4" ry="10" fill="#000" opacity="0.25"/>
+  <rect x="170" y="327.20000000000005" width="20" height="26" rx="4" fill="#C9A24B"/>
+  <rect x="156" y="309.20000000000005" width="48" height="20" rx="8" fill="#E8C877"/>
+  <rect x="120" y="353.20000000000005" width="120" height="136.79999999999998" rx="16" fill="url(#pp_13)" opacity="0.92"/>
+  <rect x="130" y="363.20000000000005" width="19.2" height="106.704" rx="8" fill="#fff" opacity="0.4"/>
+  <circle cx="180" cy="428.44000000000005" r="31.200000000000003" fill="#fff" opacity="0.9"/>
+  <text x="180" y="433.91200000000003" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="11" font-weight="800" letter-spacing="2" fill="#8B5CF6" text-anchor="middle" opacity="1">PARFUM</text>
+<path d="M70 492 Q71.44 498.56 78 500 Q71.44 501.44 70 508 Q68.56 501.44 62 500 Q68.56 498.56 70 492Z" fill="#E9D5FF" opacity="0.9"/><path d="M300 511 Q301.62 518.38 309 520 Q301.62 521.62 300 529 Q298.38 521.62 291 520 Q298.38 518.38 300 511Z" fill="#C4B5FD" opacity="0.8"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(0,0,0,.3)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="rgba(255,255,255,.7)" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#FDE68A">¥199</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_16)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">立即拥有</text>
+</svg>

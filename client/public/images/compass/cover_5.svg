@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A1A08"/><stop offset="1" stop-color="#120D20"/>
+    </linearGradient>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#2A2140" stroke-width="0.5" opacity="0.45"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#grid)"/>
+  <circle cx="270" cy="90" r="80" fill="#EABB5C" opacity="0.08"/>
+  
+  <g transform="translate(228,44) rotate(8)" opacity="0.9">
+    <path d="M8 22h64l-6 52a8 8 0 01-8 8H22a8 8 0 01-8-8z" fill="none" stroke="#EABB5C" stroke-width="3"/>
+    <path d="M26 22v-6a14 14 0 0128 0v6" fill="none" stroke="#EABB5C" stroke-width="3"/>
+    <circle cx="30" cy="40" r="3" fill="#F97316"/><circle cx="50" cy="40" r="3" fill="#F97316"/>
+    <path d="M30 56q10 8 20 0" fill="none" stroke="#F97316" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(196,118) rotate(-12)">
+    <rect width="52" height="26" rx="6" fill="#F97316"/>
+    <text x="26" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#0A0714" font-family="sans-serif">¥ 抢</text>
+  </g>
+  <rect x="24" y="24" width="80" height="18" rx="9" fill="#EABB5C" opacity="0.18"/>
+  <text x="32" y="37" font-size="10" letter-spacing="2" fill="#EABB5C" font-family="sans-serif">SHOPPING</text>
+  <text x="24" y="96" font-size="21" font-weight="bold" fill="#F3F0FF" font-family="Microsoft YaHei, PingFang SC, sans-serif">国货之光：这支牙膏</text>
+  <text x="24" y="126" font-size="21" font-weight="bold" fill="#F3F0FF" font-family="Microsoft YaHei, PingFang SC, sans-serif">复购率90%</text>
+  <text x="24" y="146" font-size="12" fill="#9D8FD0" font-family="Microsoft YaHei, PingFang SC, sans-serif">@国货观察员 · 72.0w次播放</text>
+  <rect x="24" y="156" width="60" height="3" rx="1.5" fill="#EABB5C"/>
+</svg>

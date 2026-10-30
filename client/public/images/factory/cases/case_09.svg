@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_44" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#FFFBEB"/><stop offset="0.55" stop-color="#FDE68A"/><stop offset="1" stop-color="#FCD34D"/></linearGradient>
+  <radialGradient id="gl_45" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff" stop-opacity="0.55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_46" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#FBBF24"/></linearGradient>
+  <pattern id="dot_47" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#92400E" opacity="0.14"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_44)"/>
+<rect width="360" height="640" fill="url(#dot_47)"/>
+
+<circle cx="180" cy="430" r="190" fill="url(#gl_45)"/>
+<path d="M60 111 Q61.62 118.38 69 120 Q61.62 121.62 60 129 Q58.38 121.62 51 120 Q58.38 118.38 60 111Z" fill="#D97706" opacity="0.55"/><path d="M304 130 Q305.8 138.2 314 140 Q305.8 141.8 304 150 Q302.2 141.8 294 140 Q302.2 138.2 304 130Z" fill="#F59E0B" opacity="0.5"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.5)" stroke="#92400E" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#92400E" text-anchor="middle" opacity="1">甜品工坊</text>
+
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#92400E" text-anchor="middle" opacity="1">甜蜜暴击</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#92400E" text-anchor="middle" opacity="1">限定蛋糕</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="#B5793B" text-anchor="middle" opacity="1">动物奶油 · 现烤现发</text>
+<ellipse cx="180" cy="506" rx="112.2" ry="11" fill="#D9B98A"/>
+  <ellipse cx="180" cy="500" rx="102" ry="9" fill="#F5E7C6"/>
+  <rect x="95" y="454" width="170" height="46" rx="9" fill="#F59E0B"/>
+  <rect x="95" y="454" width="170" height="14" rx="7" fill="#FFF7ED"/><circle cx="115.4" cy="468" r="7" fill="#FFF7ED"/><circle cx="159.6" cy="468" r="7" fill="#FFF7ED"/><circle cx="207.2" cy="468" r="7" fill="#FFF7ED"/><circle cx="248" cy="468" r="7" fill="#FFF7ED"/>
+  <rect x="115.4" y="406" width="129.2" height="40" rx="9" fill="#FBBF24"/>
+  <rect x="115.4" y="406" width="129.2" height="12" rx="6" fill="#FFF7ED"/>
+  <circle cx="180" cy="394" r="10" fill="#E11D48"/><path d="M180 386 q10 -12 18 -14" stroke="#16A34A" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+<path d="M70 498 Q71.44 504.56 78 506 Q71.44 507.44 70 514 Q68.56 507.44 62 506 Q68.56 504.56 70 498Z" fill="#D97706" opacity="0.5"/><path d="M300 472 Q301.44 478.56 308 480 Q301.44 481.44 300 488 Q298.56 481.44 292 480 Q298.56 478.56 300 472Z" fill="#B45309" opacity="0.45"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(255,255,255,.65)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="#B5793B" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#B45309">¥69</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_46)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">来一块</text>
+</svg>

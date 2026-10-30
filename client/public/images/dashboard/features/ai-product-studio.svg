@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A1330"/><stop offset="1" stop-color="#0A0714"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+    <linearGradient id="lightL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C4B5FD" stop-opacity="0.5"/><stop offset="1" stop-color="#C4B5FD" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lightR" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D946EF" stop-opacity="0.4"/><stop offset="1" stop-color="#D946EF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#2A2140" stroke-width="0.5" opacity="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#grid)"/>
+
+  <!-- 影棚柔光 -->
+  <path d="M40 20L120 130H60L20 60z" fill="url(#lightL)"/>
+  <path d="M280 20l-80 110h60l40-70z" fill="url(#lightR)"/>
+
+  <!-- 展台 -->
+  <ellipse cx="160" cy="136" rx="72" ry="12" fill="#221A38" stroke="#3A2F5A"/>
+  <rect x="96" y="118" width="128" height="16" rx="6" fill="#120D20" stroke="#3A2F5A"/>
+
+  <!-- 产品瓶 -->
+  <g filter="url(#glow)">
+    <rect x="146" y="66" width="28" height="54" rx="8" fill="url(#ac)" opacity="0.9"/>
+    <rect x="152" y="54" width="16" height="14" rx="4" fill="#C4B5FD"/>
+    <rect x="150" y="84" width="20" height="16" rx="3" fill="#0A0714" opacity="0.35"/>
+  </g>
+
+  <!-- 相机取景框 -->
+  <g fill="none" stroke="#C4B5FD" stroke-width="2" filter="url(#glow)">
+    <path d="M118 62v-8a6 6 0 016-6h8M188 46h8a6 6 0 016 6v8M210 108v8a6 6 0 01-6 6h-8M132 122h-8a6 6 0 01-6-6v-8"/>
+  </g>
+  <circle cx="160" cy="88" r="34" fill="none" stroke="#3A2F5A" stroke-dasharray="3 5"/>
+
+  <!-- 光斑 -->
+  <circle cx="74" cy="52" r="3" fill="#EABB5C" filter="url(#glow)"/>
+  <circle cx="250" cy="60" r="2.5" fill="#D946EF" filter="url(#glow)"/>
+  <circle cx="228" cy="34" r="2" fill="#8B5CF6"/>
+
+  <text x="14" y="166" font-size="9" fill="#5B5280" font-family="sans-serif" letter-spacing="2">AI STUDIO</text>
+</svg>

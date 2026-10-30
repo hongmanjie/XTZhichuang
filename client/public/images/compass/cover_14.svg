@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3A0D14"/><stop offset="1" stop-color="#120D20"/>
+    </linearGradient>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#2A2140" stroke-width="0.5" opacity="0.45"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#grid)"/>
+  <circle cx="270" cy="90" r="80" fill="#FB7185" opacity="0.08"/>
+  
+  <g transform="translate(222,52)">
+    <path d="M0 40h96a48 48 0 01-96 0z" fill="none" stroke="#FB7185" stroke-width="3"/>
+    <path d="M14 34h68" stroke="#FB7185" stroke-width="3" stroke-linecap="round"/>
+    <path d="M30 22q4-8 0-14M36 36q4-8 0-16M52 36q4-8 0-16M68 34q4-8 0-14" fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+    <path d="M88 10l14-8M92 22l16-4" stroke="#FB7185" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <rect x="24" y="24" width="48" height="18" rx="9" fill="#FB7185" opacity="0.18"/>
+  <text x="32" y="37" font-size="10" letter-spacing="2" fill="#FB7185" font-family="sans-serif">FOOD</text>
+  <text x="24" y="96" font-size="21" font-weight="bold" fill="#F3F0FF" font-family="Microsoft YaHei, PingFang SC, sans-serif">深夜食堂：凌晨两点</text>
+  <text x="24" y="126" font-size="21" font-weight="bold" fill="#F3F0FF" font-family="Microsoft YaHei, PingFang SC, sans-serif">的关东煮</text>
+  <text x="24" y="146" font-size="12" fill="#9D8FD0" font-family="Microsoft YaHei, PingFang SC, sans-serif">@深夜食堂记 · 78.0w次播放</text>
+  <rect x="24" y="156" width="60" height="3" rx="1.5" fill="#FB7185"/>
+</svg>
