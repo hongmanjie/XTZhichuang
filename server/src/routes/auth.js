@@ -6,8 +6,9 @@ import { success, fail } from '../utils/response.js'
 import { asyncHandler } from '../utils/response.js'
 
 const router = express.Router()
-function setMediaCookie(res, token) {
-  res.cookie('yimetai_media', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 })
+function setMediaCookie(req, res, token) {
+  // Secure 跟随实际请求协议(trust proxy + X-Forwarded-Proto):HTTP 部署下浏览器才会保存该 cookie
+  res.cookie('yimetai_media', token, { httpOnly: true, sameSite: 'lax', secure: req.secure === true, path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 })
 }
 
 // 登录页初始化（站点配置）
@@ -38,7 +39,7 @@ router.post('/login', asyncHandler(async (req, res) => {
     return res.json(fail('账号或密码错误', 400))
   }
   const token = signToken(user)
-  setMediaCookie(res, token)
+  setMediaCookie(req, res, token)
   const { password: _p, ...safeUser } = user
 
   // 记录登录日志
@@ -81,7 +82,7 @@ router.post('/register', asyncHandler(async (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)
   const token = signToken(user)
-  setMediaCookie(res, token)
+  setMediaCookie(req, res, token)
   const { password: _p, ...safeUser } = user
   res.json(success({ token, userInfo: safeUser }))
 }))
@@ -107,7 +108,7 @@ router.post('/logout', authRequired, (req, res) => {
 })
 
 router.post('/media/session', authRequired, (req, res) => {
-  setMediaCookie(res, signToken(req.user))
+  setMediaCookie(req, res, signToken(req.user))
   res.json(success(null))
 })
 

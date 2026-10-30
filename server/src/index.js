@@ -21,6 +21,8 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads')
 fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
 const app = express()
+// 信任反向代理的 X-Forwarded-Proto,使 req.secure 反映真实协议(媒体 cookie 的 Secure 标记依赖它)
+app.set('trust proxy', 1)
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
