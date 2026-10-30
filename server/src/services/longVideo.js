@@ -104,7 +104,7 @@ export async function generateLongVideo(taskId, params) {
         db.prepare('UPDATE ai_tasks SET provider_task_id = NULL WHERE id = ?').run(taskId)
       }).immediate()
     } catch (error) {
-      if (['MG_TASK_FAILED', 'MG_TASK_CANCELLED'].includes(error.code)) {
+      if (['MG_TASK_FAILED', 'MG_TASK_CANCELLED', 'MG_CONNECTION_UNAVAILABLE'].includes(error.code)) {
         db.prepare("UPDATE long_video_segments SET status = 'pending', provider_task_id = NULL, idempotency_key = ? WHERE id = ?").run(crypto.randomUUID(), segment.id)
       }
       throw error

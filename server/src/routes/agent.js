@@ -67,6 +67,14 @@ router.get('/conversations/:id/messages', authRequired, (req, res) => {
   res.json(success({ conversation: conv, messages: list }))
 })
 
+router.post('/conversations/:id/skill', authRequired, (req, res) => {
+  const { skill } = req.body
+  if (!SKILLS.some((item) => item.key === skill)) return res.json(fail('请选择有效的创作技能', 400))
+  const updated = db.prepare("UPDATE conversations SET skill = ?, updated_at = datetime('now','localtime') WHERE id = ? AND owner_id = ?").run(skill, req.params.id, req.user.id)
+  if (!updated.changes) return res.json(fail('会话不存在', 404))
+  res.json(success({ skill }))
+})
+
 router.post('/conversations/delete', authRequired, (req, res) => {
   db.transaction(() => {
     const owned = db.prepare('SELECT id FROM conversations WHERE id = ? AND owner_id = ?').get(req.body.id, req.user.id)
@@ -79,10 +87,10 @@ router.post('/conversations/delete', authRequired, (req, res) => {
 
 // ============ SSE 流式对话 ============
 // 协议：event: assistant.preview / task.progress / message.done
-// 真实 LLM（万界流式）优先，失败自动降级本地模拟流
-router.get('/conversations/chat', authRequired, (req, res) => {
-  const { conversationId, message } = req.query
-  if (!conversationId || !message) {
+// The legacy GET route remains for existing clients; new clients send text in a POST body.
+function streamConversation(req, res) {
+  const { conversationId, message } = req.method === 'POST' ? req.body : req.query
+  if (!Number.isSafeInteger(Number(conversationId)) || Number(conversationId) <= 0 || typeof message !== 'string' || !message.trim() || message.length > 4000) {
     return res.status(400).json({ code: 400, message: '参数缺失' })
   }
 
@@ -109,7 +117,8 @@ router.get('/conversations/chat', authRequired, (req, res) => {
   })
 
   let closed = false
-  req.on('close', () => { closed = true })
+  const controller = new AbortController()
+  res.on('close', () => { closed = true; controller.abort() })
 
   const seqRef = { n: 1 }
   const send = (event, data) => {
@@ -129,9 +138,9 @@ router.get('/conversations/chat', authRequired, (req, res) => {
   }
 
   const finish = (reply, engine = 'real') => {
+    persistReply(reply)
     send('task.progress', { stage: 'done', progress: 100, desc: '生成完成' })
     send('message.done', { content: reply, role: 'assistant', engine })
-    persistReply(reply)
     res.end()
   }
 
@@ -150,7 +159,7 @@ router.get('/conversations/chat', authRequired, (req, res) => {
     ]
     let full = ''
     let lastSent = 0
-    for await (const chunk of chatStream(messages)) {
+    for await (const chunk of chatStream(messages, { signal: controller.signal })) {
       if (closed) return
       if (!chunk.delta) continue
       full += chunk.delta
@@ -176,7 +185,9 @@ router.get('/conversations/chat', authRequired, (req, res) => {
     send('task.error', { message: 'AI 引擎未启用' })
     res.end()
   }
-})
+}
+router.get('/conversations/chat', authRequired, streamConversation)
+router.post('/conversations/chat/stream', authRequired, streamConversation)
 
 // 非流式对话（备用）：真实 LLM 优先，失败降级
 router.post('/conversations/chat', authRequired, asyncHandler(async (req, res) => {
@@ -222,7 +233,7 @@ async function chatStreamToString(messages) {
 
 // 按技能注入系统提示词
 function buildSystemPrompt(skill) {
-  const base = '你是「兴图智创」电商广告内容创作助手，服务于抖音等平台的商家与内容创作者。回答使用简体中文，善用 Markdown 结构化输出（标题、列表、表格）。风格务实、可执行，避免空洞话术。'
+  const base = '你是「兴图智创」电商广告内容创作助手，服务于商家与内容创作者。回答使用简体中文，务实、可执行。只能基于用户明确提供的事实，不能虚构产品功效、认证、价格、销量或评价，信息不足时先说明并请求补充。当前对话只能读取用户输入的文字，不会自动读取图片、视频或链接内容；不得声称已经看到或分析了未提供的画面，可建议用户使用视频解析功能。'
   const skillPrompts = {
     script: `\n当前技能：脚本创作。用户需要带货口播/短视频脚本。输出要求：\n- 若未指定时长，默认产出 30~45 秒口播脚本\n- 按时间轴分段（黄金3秒钩子/痛点引入/产品亮相/卖点展示/信任背书/行动号召），每段标注秒数与话术\n- 话术口语化，每句不超过 20 字，符合抖音带货节奏\n- 结尾主动询问是否需要调整风格、时长或补充卖点`,
     product: `\n当前技能：产品分析。用户需要产品卖点与营销策略分析。输出要求：\n- 结构化输出：核心卖点（1主推+2辅助）、目标人群画像、差异化定位、定价与促销建议\n- 结合平台特性（抖音兴趣电商）给出可落地建议\n- 数据表述需标注为估算/经验值，避免编造精确数据`,

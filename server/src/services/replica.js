@@ -17,7 +17,7 @@ export async function prepareReferenceVideo(params, context) {
     const transcript = String(analysis.transcript || '').trim().slice(0, 2500)
     const ocr = [...new Set((analysis.frames || []).map((frame) => String(frame.text || '').trim()).filter(Boolean))].join('\n').slice(0, 1500)
     if (!transcript && !ocr) throw new Error('参考视频没有识别出语音或文字，当前无法据此生成；请更换素材')
-    reference = { transcript, ocr, duration: analysis.duration, warnings: result.warnings || [] }
+    reference = { transcript, ocr, duration: analysis.duration, sceneChanges: analysis.sceneChanges, warnings: result.warnings || [] }
     saved.referenceAnalysis = reference
     saved.referencePhase = 'ready'
     const updated = db.prepare("UPDATE ai_tasks SET params = ? WHERE id = ? AND status = 'running'").run(JSON.stringify(saved), context.taskId)
@@ -27,6 +27,7 @@ export async function prepareReferenceVideo(params, context) {
     `用户的新视频要求：${params.prompt}`,
     reference.transcript ? `参考视频语音转写（可能有误，仅供理解文案）：${reference.transcript}` : '',
     reference.ocr ? `参考视频抽帧文字（可能有误，仅供参考）：${reference.ocr}` : '',
+    reference.sceneChanges?.times?.length ? `参考视频约在 ${reference.sceneChanges.times.slice(0, 20).join('、')} 秒有明显画面变化；只可作为节奏参考，不能据此推断画面内容。` : '',
     '依据用户要求和可确认的文字创作新视频，不要照搬参考中的未经确认的品牌、价格、数据或功效。不要假设你看过参考视频画面。',
   ].filter(Boolean).join('\n').slice(0, 5000)
   return { reference, prompt }

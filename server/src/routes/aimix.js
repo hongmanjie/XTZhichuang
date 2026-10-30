@@ -1,10 +1,40 @@
 import express from 'express'
+import fs from 'fs'
 import db from '../db.js'
 import { authRequired } from '../middleware/auth.js'
 import { success, fail, page, asyncHandler } from '../utils/response.js'
 import { teamCond } from '../utils/teamScope.js'
+import { localMediaPath, probeMedia } from '../services/mediaTools.js'
+import { createTask } from '../services/aiEngine.js'
 
 const router = express.Router()
+
+// Real local composition: keep the selected order and original audio. No semantic matching.
+router.post('/ai-mix/join', authRequired, asyncHandler(async (req, res) => {
+  const { videoUrls, title = '' } = req.body
+  if (!Array.isArray(videoUrls) || videoUrls.length < 2 || videoUrls.length > 6 || videoUrls.some((url) => typeof url !== 'string')) {
+    return res.json(fail('请选择 2–6 个视频片段', 400))
+  }
+  if (typeof title !== 'string' || title.length > 50) return res.json(fail('作品名称不能超过 50 字', 400))
+  const scope = teamCond(req.user.id)
+  const lookup = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'video' AND ${scope.clause}`)
+  const files = []
+  for (const url of videoUrls) {
+    const file = localMediaPath(url)
+    if (!lookup.get(url, ...scope.args) || !file || !fs.existsSync(file)) return res.json(fail('视频不存在或无权使用', 400))
+    files.push(file)
+  }
+  let info
+  try { info = await Promise.all(files.map(probeMedia)) } catch { return res.json(fail('视频文件无效或无法读取', 400)) }
+  if (info.some((item) => Math.max(item.width, item.height) > 1920 || Math.min(item.width, item.height) > 1080)) {
+    return res.json(fail('视频尺寸暂支持不超过 1920×1080 或 1080×1920', 400))
+  }
+  if (info.some((item) => item.duration > 120) || info.reduce((sum, item) => sum + item.duration, 0) > 180) {
+    return res.json(fail('单个片段不能超过 120 秒，片段总时长不能超过 180 秒', 400))
+  }
+  const task = createTask(req.user.id, 'videoJoin', { title: title.trim() || '视频拼接', videoUrls }, 0)
+  res.json(success(task))
+}))
 
 // ============ 智能剪辑项目 ============
 router.get('/ai-mix/list', authRequired, (req, res) => {

@@ -55,8 +55,8 @@ export default function HitReplica() {
 
   return <div className="mx-auto max-w-5xl pb-12">
     <h1 className="text-2xl font-bold text-gray-900">爆款复刻 <Tag color="gold">部分可用</Tag></h1>
-    <p className="mt-2 text-sm text-gray-500">上传参考视频，系统根据其中的语音和画面文字生成新视频。</p>
-    <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-800">当前只参考语音及抽帧文字，不能理解或复制原片的画面、动作、镜头和音乐；平台分享链接暂未接入。完整的视频理解与复刻仍在完善中。</div>
+    <p className="mt-2 text-sm text-gray-500">上传参考视频，系统根据语音、画面文字和疑似切换节奏生成新视频。</p>
+    <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-800">当前参考语音、抽帧文字和检测到的画面切换节奏，不能理解或复制原片的画面、动作和音乐；画面切换可能误判，平台分享链接暂未接入。</div>
     <div className="mt-6 grid gap-5 lg:grid-cols-2">
       <div className="space-y-5 rounded-2xl bg-white p-6 shadow-sm">
         <div><label className="mb-2 block text-sm font-medium">1. 选择参考视频</label>
@@ -80,7 +80,7 @@ export default function HitReplica() {
           {task.status === 'success' && task.result?.videos?.[0]?.url ? <>
             {!!task.result.warnings?.length && <p className="mb-2 text-xs leading-5 text-amber-600">{task.result.warnings.join('；')}</p>}
             <video controls className="w-full rounded-lg bg-black" src={task.result.videos[0].url} />
-            {task.result.reference && <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">查看参考文字</summary><p className="mt-2 whitespace-pre-wrap">语音：{task.result.reference.transcript || '未识别到'}</p><p className="mt-2 whitespace-pre-wrap">画面文字：{task.result.reference.ocr || '未识别到'}</p></details>}
+            {task.result.reference && <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">查看参考信息</summary><p className="mt-2 whitespace-pre-wrap">语音：{task.result.reference.transcript || '未识别到'}</p><p className="mt-2 whitespace-pre-wrap">画面文字：{task.result.reference.ocr || '未识别到'}</p>{task.result.reference.sceneChanges && <p className="mt-2">疑似画面切换：{task.result.reference.sceneChanges.times?.length ? `${task.result.reference.sceneChanges.times.join('、')} 秒` : '未检测到明显画面突变'}</p>}</details>}
           </> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}
           {task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}
           {['failed', 'reconciling'].includes(task.status) && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}

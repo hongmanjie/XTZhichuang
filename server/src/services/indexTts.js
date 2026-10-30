@@ -18,6 +18,23 @@ function ttsUrl(resource) {
   return `${base.replace(/\/$/, '')}${resource}`
 }
 
+// Health checks do not submit synthesis jobs. A gateway that does not expose this
+// endpoint is marked unknown so it can still be used after an explicit attempt.
+export async function indexTtsStatus() {
+  if (!process.env.INDEX_TTS_BASE_URL) return { available: false, reason: 'not_configured' }
+  try {
+    const response = await fetch(ttsUrl('/health'), { redirect: 'error', signal: AbortSignal.timeout(2500) })
+    if (response.ok) return { available: true, reason: 'reachable' }
+    if ([401, 403, 404, 405].includes(response.status)) return { available: null, reason: 'health_unknown' }
+    return { available: false, reason: 'unavailable' }
+  } catch { return { available: false, reason: 'unreachable' } }
+}
+
+async function requireTtsReachable() {
+  const status = await indexTtsStatus()
+  if (status.available === false) throw new Error(status.reason === 'not_configured' ? '音色服务地址尚未配置' : '音色服务暂时不可连接，请检查网络或稍后重试')
+}
+
 async function ttsFetch(resource, options = {}, timeout = 300000) {
   try {
     const response = await fetch(ttsUrl(resource), { ...options, redirect: 'error', signal: AbortSignal.timeout(timeout) })
@@ -49,6 +66,7 @@ async function readLimited(response, limit) {
 
 export async function uploadVoice(ownerId, name, audio, filename) {
   if (!audio?.length || audio.length > 10 * 1024 * 1024) throw new Error('参考音频大小须在 10 MB 以内')
+  await requireTtsReachable()
   const temp = path.join(os.tmpdir(), `yimetai-voice-${crypto.randomUUID()}.audio`)
   const wav = `${temp}.wav`
   try {
@@ -88,6 +106,7 @@ export async function dubVideo(ownerId, params) {
   if (!voice) throw new Error('音色不存在或无权使用')
   const videoPath = localMediaPath(params.videoUrl)
   if (!videoPath || !fs.existsSync(videoPath)) throw new Error('视频文件不存在')
+  await requireTtsReachable()
   const video = await probeMedia(videoPath)
   fs.mkdirSync(PRIVATE_DIR, { recursive: true })
   const audioPath = path.join(PRIVATE_DIR, `speech_${crypto.randomUUID()}.wav`)

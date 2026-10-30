@@ -41,7 +41,7 @@ export async function inspectStudioProduct(url) {
     if (value < 245) transparent++
     if (value > 16) { visible++; minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y) }
   }
-  if (transparent < alpha.length * 0.01 || visible < alpha.length * 0.01) throw new Error('请上传已去除背景的透明 PNG 商品图；当前不支持自动抠图')
+  if (transparent < alpha.length * 0.01 || visible < alpha.length * 0.01) throw new Error('商品主体或透明背景无效，请先检查抠图结果')
   const marginX = Math.ceil(image.width * 0.015)
   const marginY = Math.ceil(image.height * 0.015)
   const left = Math.max(0, Math.floor(minX * image.width / SAMPLE_SIZE) - marginX)
@@ -83,7 +83,7 @@ export async function generateStudio(params, context) {
     const composed = await composeStudioImage(backgroundUrl, params.imageUrl, product)
     return { title: 'AI商品场景图', desc: style, engine: 'real', provider: 'modelgate + ffmpeg', model: background.model,
       generatedAt: new Date().toISOString(), images: [{ name: '商品场景图', ...composed }], videos: [],
-      warnings: ['商品主体来自上传的透明图；背景与商品的光影融合需要人工检查，当前不支持自动抠图。'] }
+      warnings: ['商品主体直接合成；自动抠图可能遗漏主体或保留其他物体，边缘和光影融合需要人工检查。'] }
   } finally {
     const file = localMediaPath(backgroundUrl)
     if (file && file !== product.file && /^ai_[\w-]+\.(?:png|jpe?g|webp)$/i.test(path.basename(file))) { try { fs.unlinkSync(file) } catch {} }

@@ -33,18 +33,26 @@ let failNextChat = false
 let holdNextVideo = false
 let failOCR = false
 let failSpeech = false
+let ttsHealthCode = 200
+let failGatewayConnection = false
 const fixture = path.join(uploads, 'fixture.mp4')
 
 before(async () => {
   media = await import('../src/services/mediaTools.js')
   spec = await import('../src/services/h3Spec.js')
   await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=red:s=160x96:d=8:r=24', '-f', 'lavfi', '-i', 'color=blue:s=160x96:d=1:r=24', '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[v]', '-map', '[v]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', fixture])
+  await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=blue:s=160x96:d=3:r=24', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(uploads, 'blue.mp4')])
   await media.runMedia(media.FFMPEG, ['-y', '-ss', '1', '-i', fixture, '-frames:v', '1', path.join(uploads, 'input.jpg')])
   await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=c=black@0.0:s=240x320:d=1,format=rgba,drawbox=x=70:y=60:w=100:h=200:color=red@1.0:t=fill:replace=1', '-frames:v', '1', path.join(uploads, 'fixture-transparent.png')])
   await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:a', 'pcm_s16le', path.join(temp, 'sample.wav')])
   await media.runMedia(media.FFMPEG, ['-y', '-i', fixture, '-i', path.join(temp, 'sample.wav'), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-af', 'apad', '-t', '9', path.join(uploads, 'with-audio.mp4')])
   server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/xt-platform/models/v1/infer') {
+    if (req.method === 'HEAD' && req.url === '/xt-platform/models/v1' && failGatewayConnection) {
+      req.socket.destroy()
+    } else if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(ttsHealthCode, { 'Content-Type': 'application/json' })
+      res.end('{}')
+    } else if (req.method === 'POST' && req.url === '/xt-platform/models/v1/infer') {
       let body = ''
       req.on('data', (chunk) => { body += chunk })
       req.on('end', () => {
@@ -173,6 +181,31 @@ test('long video plans and joins real segments, and retry preserves finished seg
   tasks.deleteTask(task.id)
   assert.ok(intermediate.every((file) => !fs.existsSync(file)), 'unreferenced segment files should be cleaned up')
   assert.equal(fs.existsSync(output), true, 'the final video remains in works/materials')
+})
+
+test('unreachable gateway before submission refunds and long video can retry safely', async () => {
+  process.env.AI_REAL_ENABLED = 'true'
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('gateway-offline','test','test',100)").run().lastInsertRowid
+  const before = submissions.length
+  failGatewayConnection = true
+  const task = tasks.createTask(user, 'materialField', { prompt: '测试断网', duration: 15, ratio: '9:16', resolution: '540P', refs: [] }, 48)
+  try {
+    for (let i = 0; i < 600 && tasks.getTask(task.id).status !== 'failed'; i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(tasks.getTask(task.id).status, 'failed')
+    assert.match(tasks.getTask(task.id).error, /任务未提交/)
+    assert.equal(submissions.length, before)
+    assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(user).ai_points, 100)
+    assert.ok(db.prepare('SELECT status, provider_task_id FROM long_video_segments WHERE task_id = ?').all(task.id).every((row) => row.status === 'pending' && !row.provider_task_id))
+  } finally { failGatewayConnection = false }
+  tasks.retryTask(task.id)
+  for (let i = 0; i < 600 && tasks.getTask(task.id).status !== 'success'; i++) {
+    const current = tasks.getTask(task.id)
+    if (['failed', 'reconciling'].includes(current.status)) throw new Error(current.error)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.equal(tasks.getTask(task.id).status, 'success')
+  assert.equal(submissions.length - before, 2)
+  assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(user).ai_points, 52)
 })
 
 test('H3 frame counts and [height,width] sizes match the gateway contract', () => {
@@ -393,6 +426,7 @@ test('video analysis uses real extraction paths and reports recognized audio and
   assert.deepEqual(completed.result.analysis.transcriptSegments[0], { text: '识别出的语音', start: 0, end: 3 })
   assert.equal(completed.result.analysis.frames.length, 3)
   assert.ok(completed.result.analysis.frames.every((frame) => frame.text === '识别出的画面文字'))
+  assert.ok(completed.result.analysis.sceneChanges.times.some((time) => Math.abs(time - 8) < 0.15), 'detect the actual red-to-blue cut')
   assert.match(completed.result.analysis.limitation, /未理解/)
 })
 
@@ -456,14 +490,37 @@ test('submitted video cancellation waits for upstream confirmation before refund
 })
 
 test('subtitles are burned onto a real video and can be disabled', async () => {
-  const { burnSubtitles, splitScript } = await import('../src/services/subtitleBurn.js')
+  const { burnSubtitles, splitScript, validateSubtitleSegments, buildAss } = await import('../src/services/subtitleBurn.js')
   const short = splitScript('第一句，第二句，第三句，第四句，第五句。', 1)
   assert.ok(short.every((segment) => segment.end > segment.start && segment.end <= 1))
+  assert.match(splitScript('Hello world, welcome.', 4)[0].text, /Hello world/)
+  assert.throws(() => validateSubtitleSegments([{ text: 'one', start: 0, end: 2 }, { text: 'two', start: 1, end: 3 }], 4), /时间无效/)
+  assert.throws(() => validateSubtitleSegments([{ text: 'one', start: null, end: 2 }], 4), /时间无效/)
+  const safe = validateSubtitleSegments([{ text: 'safe{\\pos(1,1)}\nline', start: 0, end: 1 }], 4)
+  assert.doesNotMatch(safe[0].text, /[{}\\\n]/)
+  assert.match(buildAss([{ text: 'time', start: 59.999, end: 61 }], 'pure', { width: 640, height: 360 }), /0:01:00\.00,0:01:01\.00/)
   const enabled = await burnSubtitles('/uploads/fixture.mp4', { text: '这是一段字幕测试。', style: 'pure' })
   assert.equal(enabled.subtitleBurned, true)
   assert.ok((await media.probeMedia(media.localMediaPath(enabled.url))).duration > 8)
   const disabled = await burnSubtitles('/uploads/fixture.mp4', { text: '不应显示字幕', burn: false })
   assert.equal(disabled.subtitleBurned, false)
+})
+
+test('interrupted local video join is marked for review and can be retried', async () => {
+  const owner = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('join-recovery','test','test',10)").run().lastInsertRowid
+  const id = db.prepare("INSERT INTO ai_tasks (task_no,module,title,params,status,owner_id,billing_state,idempotency_key) VALUES ('join-recovery-task','videoJoin','join',?,'running',?,'reserved','join-recovery-key')")
+    .run(JSON.stringify({ title: 'join', videoUrls: ['/uploads/blue.mp4', '/uploads/fixture.mp4'] }), owner).lastInsertRowid
+  tasks.recoverAiTasks()
+  assert.equal(tasks.getTask(id).status, 'reconciling')
+  assert.match(tasks.getTask(id).stage, /拼接中断/)
+  tasks.retryTask(id)
+  for (let i = 0; i < 600 && tasks.getTask(id).status !== 'success'; i++) {
+    const current = tasks.getTask(id)
+    if (current.status === 'failed') throw new Error(current.error)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  assert.equal(tasks.getTask(id).status, 'success')
+  assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points, 10)
 })
 
 test('uploaded media is available only to an authenticated owner or team', async () => {
@@ -492,12 +549,17 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
   const outsider = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('e2e-outsider',?,'outsider',100)").run(password).lastInsertRowid
   const legacyId = db.prepare("INSERT INTO ai_tasks (task_no,module,status,params,result,owner_id) VALUES ('e2e-legacy','factory','success','{}',?,?)").run(JSON.stringify({ engine: 'mock', videos: [] }), owner).lastInsertRowid
   fs.copyFileSync(path.join(uploads, 'input.jpg'), path.join(uploads, 'private-other.jpg'))
+  fs.copyFileSync(fixture, path.join(uploads, 'private-other.mp4'))
   db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('private image','image','/uploads/private-other.jpg',?)").run(outsider)
+  db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('private video','video','/uploads/private-other.mp4',?)").run(outsider)
   db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('image','image','/uploads/input.jpg',?)").run(owner)
   db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('transparent product','image','/uploads/fixture-transparent.png',?)").run(owner)
   assert.equal(fs.existsSync(media.localMediaPath('/uploads/input.jpg')), true)
   db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('video','video','/uploads/fixture.mp4',?)").run(owner)
   db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('audio video','video','/uploads/with-audio.mp4',?)").run(owner)
+  db.prepare("INSERT INTO materials (name,type,url,owner_id) VALUES ('blue','video','/uploads/blue.mp4',?)").run(owner)
+  db.prepare("UPDATE materials SET size = 111 WHERE url = '/uploads/input.jpg' AND owner_id = ?").run(owner)
+  db.prepare("UPDATE materials SET size = 9999 WHERE url = '/uploads/private-other.jpg' AND owner_id = ?").run(outsider)
   const scriptId = db.prepare("INSERT INTO scripts (title, content, owner_id) VALUES ('test','original',?)").run(owner).lastInsertRowid
   db.prepare("INSERT INTO script_subitems (script_id,scene_no,scene_desc,line,duration,sort) VALUES (?,1,'用户原有分镜','原有台词',5,0)").run(scriptId)
   const portProbe = net.createServer()
@@ -532,6 +594,11 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     assert.match(chat, /真实模型回答/)
     const images = await (await fetch(`${base}/api/material/list?type=image`, { headers })).json()
     assert.ok(images.data.list.some((entry) => entry.url === '/uploads/input.jpg'), JSON.stringify(images))
+    const memberStatus = await (await fetch(`${base}/api/charge/memberStatus`, { headers })).json()
+    assert.equal(memberStatus.data.storage_used, 111)
+    assert.equal(memberStatus.data.member_count, 1)
+    assert.equal(memberStatus.data.points_total, null)
+    assert.equal(memberStatus.data.seat_limit, null)
     assert.equal((await post('/super/resolution/create/new', { sourceUrl: '/uploads/fixture.mp4' })).code, 503)
     assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points, 300)
     failNextChat = true
@@ -562,6 +629,18 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     voiceForm.set('audio', new Blob([fs.readFileSync(path.join(temp, 'sample.wav'))], { type: 'audio/wav' }), 'sample.wav')
     const voiceRes = await (await fetch(`${base}/api/voice/profiles`, { method: 'POST', headers: { Authorization: `Bearer ${session.data.token}` }, body: voiceForm })).json()
     assert.equal(voiceRes.code, 0)
+    assert.equal((await (await fetch(`${base}/api/voice/status`, { headers })).json()).data.available, true)
+    ttsHealthCode = 503
+    try {
+      assert.equal((await (await fetch(`${base}/api/voice/status`, { headers })).json()).data.available, false)
+      const count = db.prepare("SELECT COUNT(*) n FROM ai_tasks WHERE module = 'voiceDub' AND owner_id = ?").get(owner).n
+      const unavailable = await post('/voice/dub', { videoUrl: '/uploads/fixture.mp4', voiceId: voiceRes.data.id, text: '测试配音', mode: 'replace', speed: 1, lang: 'zh', subtitle: false })
+      assert.equal(unavailable.code, 503)
+      assert.equal(db.prepare("SELECT COUNT(*) n FROM ai_tasks WHERE module = 'voiceDub' AND owner_id = ?").get(owner).n, count)
+    } finally { ttsHealthCode = 200 }
+    ttsHealthCode = 404
+    try { assert.equal((await (await fetch(`${base}/api/voice/status`, { headers })).json()).data.available, null) }
+    finally { ttsHealthCode = 200 }
     const foreignVoice = db.prepare('SELECT id FROM voice_profiles WHERE owner_id != ? LIMIT 1').get(owner)
     if (foreignVoice) assert.equal((await post('/create/human', { text: '测试', voiceProfileId: foreignVoice.id })).code, 400)
     assert.equal((await post('/create/human', { text: '测试', voice: 1 })).code, 400)
@@ -577,7 +656,52 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     assert.equal(analyzed.code, 0, analyzed.message)
     const analysisTask = await waitTask(analyzed.data.id)
     assert.equal(analysisTask.result.analysis.transcript, '识别出的语音')
+    assert.equal((await post('/voice/subtitles/estimate', { videoUrl: '/uploads/private-other.mp4', text: '测试字幕' })).code, 400)
+    const draft = await post('/voice/subtitles/estimate', { videoUrl: '/uploads/with-audio.mp4', text: '第一句。第二句。' })
+    assert.equal(draft.code, 0, draft.message)
+    assert.equal(draft.data.timing, 'estimated')
+    assert.ok(draft.data.segments.length >= 2)
+    assert.equal((await post('/voice/subtitles/create', { videoUrl: '/uploads/with-audio.mp4', segments: [{ text: 'bad', start: 2, end: 1 }] })).code, 400)
+    const captions = await post('/voice/subtitles/create', { videoUrl: '/uploads/with-audio.mp4', style: 'pure', segments: [{ text: '第一句', start: 0.5, end: 1.5 }, { text: '第二句', start: 2, end: 3 }] })
+    assert.equal(captions.code, 0, captions.message)
+    const captionTask = await waitTask(captions.data.id)
+    assert.equal(captionTask.result.subtitle.timing, 'user')
+    assert.equal(captionTask.result.videos[0].hasAudio, true)
+    assert.match(captionTask.result.warnings.join('；'), /硬字幕不会被去除/)
+    assert.equal(db.prepare('SELECT source FROM materials WHERE url = ? AND owner_id = ?').get(captionTask.result.videos[0].url, owner).source, 'edit')
+    assert.equal((await fetch(`${base}${captionTask.result.videos[0].url}`, { headers: { Cookie: cookie, Range: 'bytes=0-100' } })).status, 206)
+    const balanceBeforeJoin = db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points
+    assert.equal((await post('/ai-mix/join', { videoUrls: ['/uploads/blue.mp4'] })).code, 400)
+    assert.equal((await post('/ai-mix/join', { videoUrls: ['/uploads/blue.mp4', '/uploads/private-other.mp4'] })).code, 400)
+    const join = await post('/ai-mix/join', { title: 'test join', videoUrls: ['/uploads/blue.mp4', '/uploads/with-audio.mp4'] })
+    assert.equal(join.code, 0, join.message)
+    const joined = await waitTask(join.data.id)
+    assert.deepEqual(joined.result.inputUrls, ['/uploads/blue.mp4', '/uploads/with-audio.mp4'])
+    const joinedPath = media.localMediaPath(joined.result.videos[0].url)
+    const joinedMeta = await media.probeMedia(joinedPath)
+    assert.ok(Math.abs(joinedMeta.duration - 12) < 0.5)
+    assert.equal(joinedMeta.hasAudio, true)
+    const pixelAt = (seconds) => {
+      const frame = spawnSync(media.FFMPEG, ['-v', 'error', '-ss', String(seconds), '-i', joinedPath, '-vf', 'scale=1:1,format=rgb24', '-frames:v', '1', '-f', 'rawvideo', 'pipe:1'])
+      assert.equal(frame.status, 0)
+      return frame.stdout
+    }
+    const firstPixel = pixelAt(1), secondPixel = pixelAt(4)
+    assert.ok(firstPixel[2] > firstPixel[0] + 100, 'first clip is blue')
+    assert.ok(secondPixel[0] > secondPixel[2] + 100, 'second clip is red')
+    const joinedMaterial = db.prepare('SELECT source, engine FROM materials WHERE url = ? AND owner_id = ?').get(joined.result.videos[0].url, owner)
+    assert.deepEqual(joinedMaterial, { source: 'edit', engine: 'real' })
+    assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points, balanceBeforeJoin)
+    assert.equal((await fetch(`${base}${joined.result.videos[0].url}`, { headers: { Cookie: cookie, Range: 'bytes=0-100' } })).status, 206)
     const balanceBeforeStudio = db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points
+    const materialCountBeforePrepare = db.prepare('SELECT COUNT(*) n FROM materials WHERE owner_id = ?').get(owner).n
+    const preparedTransparent = await post('/create/studio/prepare', { imageUrl: '/uploads/fixture-transparent.png' })
+    assert.equal(preparedTransparent.code, 0, preparedTransparent.message)
+    assert.equal(preparedTransparent.data.url, '/uploads/fixture-transparent.png')
+    assert.equal(preparedTransparent.data.method, 'original')
+    assert.equal((await post('/create/studio/prepare', { imageUrl: '/uploads/private-other.jpg' })).code, 400)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM materials WHERE owner_id = ?').get(owner).n, materialCountBeforePrepare)
+    assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points, balanceBeforeStudio)
     const rejectedStudio = await post('/create/studio', { imageUrl: '/uploads/input.jpg', prompt: '白色影棚', count: 1 })
     assert.equal(rejectedStudio.code, 400)
     assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points, balanceBeforeStudio)
@@ -585,7 +709,7 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     assert.equal(studio.code, 0, studio.message)
     const studioTask = await waitTask(studio.data.id)
     assert.equal(studioTask.result.images[0].resolution, '1024x1024')
-    assert.match(studioTask.result.warnings.join('；'), /不支持自动抠图/)
+    assert.match(studioTask.result.warnings.join('；'), /人工检查/)
     assert.equal((await fetch(`${base}${studioTask.result.images[0].url}`, { headers: { Cookie: cookie } })).status, 200)
     assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points, balanceBeforeStudio - 30)
     const rejectedReplica = await post('/create/replica', { videoUrl: '/uploads/with-audio.mp4', firstFrame: '/uploads/private-other.jpg', prompt: '介绍商品', duration: 4 })
@@ -595,8 +719,10 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     const replicaTask = await waitTask(replica.data.id)
     assert.equal(replicaTask.result.reference.transcript, '识别出的语音')
     assert.equal(replicaTask.params.referenceAnalysis.transcript, '识别出的语音')
+    assert.ok(replicaTask.result.reference.sceneChanges.times.some((time) => Math.abs(time - 8) < 0.15))
     assert.match(replicaTask.result.warnings.join('；'), /未理解或复制画面/)
     assert.match(JSON.stringify(submissions.at(-1).body), /识别出的语音/)
+    assert.match(JSON.stringify(submissions.at(-1).body), /画面变化/)
     assert.equal((await fetch(`${base}${replicaTask.result.videos[0].url}`, { headers: { Cookie: cookie, Range: 'bytes=0-100' } })).status, 206)
   } finally {
     if (child.exitCode === null) {

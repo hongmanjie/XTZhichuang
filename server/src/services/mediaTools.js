@@ -114,7 +114,8 @@ export async function concatenateVideos(urls) {
   const files = urls.map(localMediaPath)
   if (files.some((file) => !file || !fs.existsSync(file))) throw new Error('视频片段不存在')
   const metadata = await Promise.all(files.map(probeMedia))
-  const { width, height } = metadata[0]
+  const width = Math.ceil(metadata[0].width / 2) * 2
+  const height = Math.ceil(metadata[0].height / 2) * 2
   const filters = []
   for (let i = 0; i < files.length; i++) {
     filters.push(`[${i}:v:0]setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v${i}]`)
@@ -125,7 +126,7 @@ export async function concatenateVideos(urls) {
   const name = `long_${crypto.randomUUID()}.mp4`
   const output = path.join(MEDIA_UPLOAD_DIR, name)
   try {
-    await runMedia(FFMPEG, ['-y', ...files.flatMap((file) => ['-i', file]), '-filter_complex', filters.join(';'), '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-movflags', '+faststart', output], 900000)
+    await runMedia(FFMPEG, ['-y', '-filter_complex_threads', '1', ...files.flatMap((file) => ['-i', file]), '-filter_complex', filters.join(';'), '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-movflags', '+faststart', output], 900000)
     const info = await probeMedia(output)
     const expected = metadata.reduce((sum, clip) => sum + clip.duration, 0)
     if (Math.abs(info.duration - expected) > Math.max(0.5, files.length * 0.15)) throw new Error('拼接结果时长与片段不一致')

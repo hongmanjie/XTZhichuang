@@ -14,6 +14,7 @@ import { dubVideo } from './indexTts.js'
 import { analyzeVideo } from './videoAnalysis.js'
 import { generateStudio } from './studio.js'
 import { prepareReferenceVideo } from './replica.js'
+import { concatenateVideos, localMediaPath, probeMedia } from './mediaTools.js'
 
 // 无文字画面约束：视频生成模型第一段出片时禁绝一切画面文字/字幕，
 // 字幕由 subtitleBurn 二段叠加，杜绝 AI 生成字幕的变形、乱码、闪烁问题
@@ -96,7 +97,7 @@ let queueWakeScheduled = false
 
 // 生成任务编号
 function genTaskNo(module) {
-  const prefix = { replica: 'FK', factory: 'MG', studio: 'SP', materialField: 'SC', analysis: 'JX', human: 'SM', mix: 'JJ', humanAsset: 'HC' }[module] || 'AI'
+  const prefix = { replica: 'FK', factory: 'MG', studio: 'SP', materialField: 'SC', analysis: 'JX', human: 'SM', mix: 'JJ', videoJoin: 'PJ', subtitleEdit: 'ZM', humanAsset: 'HC' }[module] || 'AI'
   return `${prefix}${Date.now()}${crypto.randomInt(1000, 9999)}`
 }
 
@@ -139,6 +140,8 @@ const RESULT_TEMPLATES = {
   },
   voiceDub: { title: '配音视频', desc: '使用授权音色合成语音并配入视频', scenes: [] },
   videoAnalysis: { title: '视频文字与语音解析', desc: '识别视频中的语音和抽帧文字', scenes: [] },
+  videoJoin: { title: '视频拼接', desc: '按所选顺序拼接真实视频片段', scenes: [] },
+  subtitleEdit: { title: '字幕视频', desc: '按校对后的时间添加字幕', scenes: [] },
   mix: {
     title: '智能混剪成片',
     desc: 'AI一键混剪成片',
@@ -191,8 +194,8 @@ function claimNextTask() {
     if (!speechAvailable && !modelAvailable) return null
     const task = db.prepare("SELECT id FROM ai_tasks WHERE status = 'pending' AND ((? = 1 AND module = 'voiceDub') OR (? = 1 AND module <> 'voiceDub')) ORDER BY id LIMIT 1").get(speechAvailable, modelAvailable)
     if (!task) return null
-    db.prepare("UPDATE ai_tasks SET status = 'running', progress = 0, stage = ? WHERE id = ? AND status = 'pending'")
-      .run('正在提交或查询模型任务', task.id)
+    db.prepare("UPDATE ai_tasks SET status = 'running', progress = 0, stage = CASE WHEN module = 'videoJoin' THEN '正在准备视频拼接' WHEN module = 'subtitleEdit' THEN '正在准备字幕' ELSE '正在提交或查询模型任务' END WHERE id = ? AND status = 'pending'")
+      .run(task.id)
     return getTask(task.id)
   }).immediate()
 }
@@ -253,6 +256,8 @@ function startTask(task) {
 export function recoverAiTasks() {
   db.transaction(() => {
     db.prepare("UPDATE ai_tasks SET status = 'pending', stage = '恢复查询上游任务' WHERE status = 'running' AND provider_task_id IS NOT NULL AND idempotency_key IS NOT NULL").run()
+    db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '拼接中断，可重新尝试', error = '服务重启时本地拼接中断，请重新尝试' WHERE status = 'running' AND module = 'videoJoin'").run()
+    db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '字幕处理中断，可重新尝试', error = '服务重启时字幕处理未完成，请重新尝试' WHERE status = 'running' AND module = 'subtitleEdit'").run()
     db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复长视频制作'
       WHERE status = 'running' AND module IN ('materialField', 'factory', 'replica') AND json_valid(params)
       AND CAST(json_extract(params, '$.duration') AS REAL) > 8
@@ -325,7 +330,7 @@ async function withCovers(result) {
 // 模块 → 素材分类名（生成物自动归档到资产库）
 const MODULE_CATEGORY = {
   replica: 'AI爆款复刻', factory: 'AI梦工厂', studio: 'AI商拍',
-  materialField: 'AI素材场', human: '数字人', mix: '智能混剪', analysis: 'AI解析', voiceDub: '配音视频',
+  materialField: 'AI素材场', human: '数字人', mix: '智能混剪', videoJoin: '视频拼接', subtitleEdit: '字幕视频', analysis: 'AI解析', voiceDub: '配音视频',
 }
 
 async function finishTask(taskId, result, module) {
@@ -365,16 +370,19 @@ async function finishTask(taskId, result, module) {
   const realModel = result.engine === 'real' ? (result.model || null) : null
   const engine = result.engine || ''
   const insMat = db.prepare(`INSERT INTO materials (name, type, url, cover, duration, category, tags, owner_id, source, model, engine)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?)`)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  const isLocalEdit = ['videoJoin', 'subtitleEdit'].includes(module)
+  const materialSource = isLocalEdit ? 'edit' : 'ai'
+  const materialTags = JSON.stringify(isLocalEdit ? [category] : ['AI生成', category])
   for (const [i, v] of videos.entries()) {
     const info = insMat.run(`${task.title}_${i + 1}`, 'video', v.url, v.cover || '', v.duration || 0,
-      category, JSON.stringify(['AI生成', category]), task.owner_id, realModel, engine)
+      category, materialTags, task.owner_id, materialSource, realModel, engine)
     const row = db.prepare('SELECT * FROM materials WHERE id = ?').get(info.lastInsertRowid)
     if (row) toIndex.push(row)
   }
   for (const [i, img] of images.entries()) {
     const info = insMat.run(`${task.title}_${i + 1}`, 'image', img.url, img.url, 0,
-      category, JSON.stringify(['AI生成', category]), task.owner_id, realModel, engine)
+      category, materialTags, task.owner_id, materialSource, realModel, engine)
     const row = db.prepare('SELECT * FROM materials WHERE id = ?').get(info.lastInsertRowid)
     if (row) toIndex.push(row)
   }
@@ -385,6 +393,24 @@ async function finishTask(taskId, result, module) {
 // ---------- 真实AI执行器 ----------
 async function runRealTask(module, params, tpl, context) {
   if (module === 'voiceDub') return dubVideo(context.ownerId, params)
+  if (module === 'videoJoin') {
+    context.onStage('正在按顺序拼接视频')
+    const video = await concatenateVideos(params.videoUrls)
+    return { title: params.title || '视频拼接', desc: '按所选顺序拼接', engine: 'real', provider: 'ffmpeg',
+      inputUrls: params.videoUrls, generatedAt: new Date().toISOString(), images: [],
+      videos: [{ name: '拼接成片', ...video, resolution: `${video.width}x${video.height}` }],
+      warnings: ['按所选顺序拼接并保留各片段原声；没有自动选镜、语义匹配或音乐衔接，请检查画面及声音。'] }
+  }
+  if (module === 'subtitleEdit') {
+    context.onStage('正在添加校对后的字幕')
+    const rendered = await burnSubtitles(params.videoUrl, { segments: params.segments, style: params.style })
+    if (!rendered.subtitleBurned) throw new Error('字幕未能添加到视频')
+    const video = await probeMedia(localMediaPath(rendered.url))
+    return { title: '字幕视频', engine: 'real', provider: 'ffmpeg', generatedAt: new Date().toISOString(), images: [],
+      videos: [{ name: '字幕视频', ...video, url: rendered.url, cover: rendered.cover, resolution: rendered.resolution }],
+      subtitle: { timing: 'user', segments: params.segments },
+      warnings: ['字幕已按设定时间叠加；画面里原有的硬字幕不会被去除。'] }
+  }
   if (!realEnabled()) throw new Error('真实AI未启用')
   if (module === 'videoAnalysis') return analyzeVideo(params, context.onStage)
 
@@ -398,7 +424,7 @@ async function runRealTask(module, params, tpl, context) {
         ? await generateLongVideo(context.taskId, { prompt, duration: Number(params.duration), ratio: params.ratio, resolution: params.resolution, refs })
         : await genVideoByFrames({ prompt, firstFrame: params.firstFrame, duration: Number(params.duration), size: h3Size(params.ratio, params.resolution), context })
       return { ...result, title: '参考文案生成视频', reference,
-        warnings: [...(reference.warnings || []), '只参考原视频识别出的语音和文字，未理解或复制画面、动作、镜头和音乐；识别结果可能有误。'] }
+        warnings: [...(reference.warnings || []), '参考识别出的语音、文字及疑似画面切换节奏；未理解或复制画面内容、动作和音乐，识别结果可能有误。'] }
     }
     case 'factory':
       if (Number(params.duration) > 8) return generateLongVideo(context.taskId, {
@@ -578,7 +604,7 @@ export function retryTask(id) {
           return
         }
       }
-      if (['voiceDub', 'videoAnalysis'].includes(task.module) && !task.provider_task_id) {
+      if (['voiceDub', 'videoAnalysis', 'videoJoin', 'subtitleEdit'].includes(task.module) && !task.provider_task_id) {
         db.prepare("UPDATE ai_tasks SET status = 'pending', stage = '重新排队', error = NULL WHERE id = ?").run(id)
         return
       }

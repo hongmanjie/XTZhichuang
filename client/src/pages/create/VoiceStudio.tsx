@@ -5,18 +5,25 @@ import { api } from '../../api/request'
 
 type Voice = { id: number; name: string }
 type Material = { id: number; name: string; url: string }
-type Task = { id: number; task_no: string; status: string; stage?: string; error?: string; result?: any; provider_task_id?: string }
+type SubtitleSegment = { text: string; start: number | null; end: number | null }
+type Task = { id: number; task_no: string; module: string; status: string; stage?: string; error?: string; result?: any; params?: any; provider_task_id?: string }
 
 export default function VoiceStudio() {
   const [voices, setVoices] = useState<Voice[]>([])
+  const [voiceStatus, setVoiceStatus] = useState<{ available: boolean | null; reason: string }>()
   const [materials, setMaterials] = useState<Material[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [workMode, setWorkMode] = useState<'dub' | 'captions'>('dub')
   const [videoUrl, setVideoUrl] = useState<string>()
   const [voiceId, setVoiceId] = useState<number>()
   const [script, setScript] = useState('')
   const [mode, setMode] = useState('replace')
   const [speed, setSpeed] = useState(1)
   const [subtitle, setSubtitle] = useState(false)
+  const [subtitleText, setSubtitleText] = useState('')
+  const [segments, setSegments] = useState<SubtitleSegment[]>([{ text: '', start: 0, end: 3 }])
+  const [subtitleStyle, setSubtitleStyle] = useState('pure')
+  const [estimating, setEstimating] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [voiceModal, setVoiceModal] = useState(false)
@@ -27,14 +34,21 @@ export default function VoiceStudio() {
 
   const load = useCallback(() => {
     api.voiceProfiles().then((data: any) => setVoices(data || [])).catch(() => {})
-    api.materials({ type: 'video', pageSize: 100 }).then((data: any) => setMaterials(data.list || [])).catch(() => {})
-    api.tasks({ module: 'voiceDub', pageSize: 24 }).then((data: any) => setTasks(data.list || [])).catch(() => {})
+    api.materials({ type: 'video', pageSize: 100 }).then((data: any) => setMaterials((data.list || []).filter((item: Material) => /^\/(?:uploads|api\/(?:material\/)?files)\//.test(item.url)))).catch(() => {})
+    Promise.all([api.tasks({ module: 'voiceDub', pageSize: 24 }), api.tasks({ module: 'subtitleEdit', pageSize: 24 })])
+      .then(([voice, captions]: any[]) => setTasks([...(voice.list || []), ...(captions.list || [])].sort((a: Task, b: Task) => b.id - a.id))).catch(() => {})
   }, [])
   useEffect(() => {
     load()
     const timer = setInterval(load, 6000)
     return () => clearInterval(timer)
   }, [load])
+  useEffect(() => {
+    const check = () => api.voiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus({ available: null, reason: 'health_unknown' }))
+    check()
+    const timer = setInterval(check, 30000)
+    return () => clearInterval(timer)
+  }, [])
 
   const uploadVideo = async (file?: File) => {
     if (!file) return
@@ -79,27 +93,74 @@ export default function VoiceStudio() {
     } catch {} finally { setSubmitting(false) }
   }
 
+  const makeDraft = async () => {
+    if (!videoUrl || !subtitleText.trim()) return message.warning('请选择视频并填写字幕文案')
+    setEstimating(true)
+    try {
+      const draft: { segments: SubtitleSegment[] } = await api.estimateSubtitles({ videoUrl, text: subtitleText })
+      setSegments(draft.segments)
+      message.success('已生成时间草稿，请逐句核对')
+    } catch {} finally { setEstimating(false) }
+  }
+
+  const createCaptions = async () => {
+    if (!videoUrl) return message.warning('请先选择视频')
+    if (segments.some((item) => !item.text.trim() || item.start === null || item.end === null)) return message.warning('请完整填写每条字幕及时间')
+    setSubmitting(true)
+    try {
+      await api.createSubtitles({ videoUrl, segments: segments.map((item) => ({ text: item.text, start: Number(item.start), end: Number(item.end) })), style: subtitleStyle })
+      message.success('字幕任务已加入队列')
+      load()
+    } catch {} finally { setSubmitting(false) }
+  }
+
+  const updateSegment = (index: number, change: Partial<SubtitleSegment>) => setSegments((items) => items.map((item, i) => i === index ? { ...item, ...change } : item))
+
   return (
     <div className="mx-auto max-w-5xl pb-12">
       <h1 className="text-2xl font-bold text-gray-900">配音与口型</h1>
-      <p className="mt-2 text-sm text-gray-500">上传视频，选择授权音色并输入文案，生成新的配音视频。</p>
+      <p className="mt-2 text-sm text-gray-500">为视频配音，或校对字幕文字与时间后生成新视频。</p>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <div className="space-y-5 rounded-2xl bg-white p-6 shadow-sm">
+          <Radio.Group value={workMode} onChange={(event) => { const next = event.target.value as 'dub' | 'captions'; if (next === 'captions' && !subtitleText && script) setSubtitleText(script); setWorkMode(next) }}>
+            <Radio.Button value="dub">配音合成</Radio.Button><Radio.Button value="captions">字幕校对</Radio.Button>
+          </Radio.Group>
           <div><label className="mb-2 block text-sm font-medium">1. 选择视频</label>
             <div className="flex gap-2"><Select className="flex-1" placeholder="从素材库选择" value={videoUrl} onChange={setVideoUrl} showSearch optionFilterProp="label" options={materials.map((m) => ({ value: m.url, label: m.name }))} />
               <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 text-sm hover:border-purple-400"><input type="file" hidden accept="video/*" disabled={uploading} onChange={(event) => { uploadVideo(event.target.files?.[0]); event.target.value = '' }} />{uploading ? '上传中…' : '上传视频'}</label></div>
             {videoUrl && <video src={videoUrl} controls className="mt-3 max-h-56 w-full rounded-lg bg-black" />}</div>
-          <div><label className="mb-2 block text-sm font-medium">2. 选择音色</label><div className="flex gap-2"><Select className="flex-1" placeholder="选择我的音色" value={voiceId} onChange={setVoiceId} options={voices.map((v) => ({ value: v.id, label: v.name }))} /><Button icon={<PlusOutlined />} onClick={() => setVoiceModal(true)}>添加音色</Button></div>
+          {workMode === 'dub' ? <>
+          {voiceStatus?.available === false && <div className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">音色服务暂时不可连接，请检查网络或稍后重试；字幕校对仍可使用。</div>}
+          {voiceStatus?.available === null && <p className="text-xs text-gray-500">暂时无法确认音色服务状态，可尝试使用。</p>}
+          <div><label className="mb-2 block text-sm font-medium">2. 选择音色</label><div className="flex gap-2"><Select className="flex-1" placeholder="选择我的音色" value={voiceId} onChange={setVoiceId} options={voices.map((v) => ({ value: v.id, label: v.name }))} /><Button icon={<PlusOutlined />} disabled={voiceStatus?.available === false} onClick={() => setVoiceModal(true)}>添加音色</Button></div>
             {voiceId && <Popconfirm title="删除该音色？" description="删除后无法继续用它合成语音。" onConfirm={async () => { try { await api.deleteVoice(voiceId); setVoiceId(undefined); load(); message.success('音色已删除') } catch {} }}><button className="mt-2 text-xs text-gray-500 hover:text-red-500"><DeleteOutlined /> 删除所选音色</button></Popconfirm>}</div>
           <div><label className="mb-2 block text-sm font-medium">3. 输入配音文案</label><Input.TextArea rows={5} maxLength={600} showCount value={script} onChange={(e) => setScript(e.target.value)} placeholder="输入视频需要说的话" /></div>
           <div className="flex flex-wrap items-center gap-4"><span className="text-sm">语速</span><InputNumber min={0.5} max={2} step={0.1} value={speed} onChange={(value) => setSpeed(value || 1)} /><span className="text-xs text-gray-500">文案过长时可提高语速或缩短内容</span></div>
           <div><div className="mb-2 text-sm font-medium">原视频声音</div><Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}><Radio value="replace">替换原音</Radio><Radio value="mix">保留低音量原音</Radio></Radio.Group><p className="mt-2 text-xs text-gray-500">保留原音时，原视频中的人声也会保留并可能与新配音重叠。</p></div>
           <div><Checkbox checked={subtitle} onChange={(event) => setSubtitle(event.target.checked)}>添加新字幕</Checkbox><p className="mt-2 text-xs text-gray-500">字幕按文案和语音时长估算，可能与语音存在偏差；不会自动去除画面里的旧字幕。</p></div>
           <div className="rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-500">口型同步暂未接入；当前配音会替换或混合音轨，人物嘴型不会自动改变。画面中已有的字幕也不会自动移除。</div>
-          <Button type="primary" size="large" block loading={submitting} disabled={uploading} onClick={createDub}>生成配音视频</Button>
+          <Button type="primary" size="large" block loading={submitting} disabled={uploading || voiceStatus?.available === false} onClick={createDub}>生成配音视频</Button>
+          </> : <>
+            <div><label className="mb-2 block text-sm font-medium">2. 输入字幕文案（可选）</label>
+              <Input.TextArea rows={3} maxLength={600} showCount value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} placeholder="粘贴文案后可生成时间草稿，也可直接逐条填写" />
+              <Button className="mt-2" loading={estimating} onClick={makeDraft}>生成时间草稿</Button>
+              <p className="mt-2 text-xs text-gray-500">草稿按视频时长估算，不会自动对齐语音；请播放视频逐句调整。</p>
+            </div>
+            <div><label className="mb-2 block text-sm font-medium">3. 校对每句字幕与时间（秒）</label>
+              <div className="space-y-2">{segments.map((item, index) => <div key={index} className="rounded-lg bg-gray-50 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs text-gray-500"><span>第 {index + 1} 句</span><span className="flex-1" /><Button size="small" danger disabled={segments.length === 1} onClick={() => setSegments((items) => items.filter((_, i) => i !== index))}>删除</Button></div>
+                <Input value={item.text} maxLength={120} placeholder="字幕文字" onChange={(event) => updateSegment(index, { text: event.target.value })} />
+                <div className="mt-2 flex items-center gap-2 text-xs text-gray-500"><span>开始</span><InputNumber className="!w-24" min={0} max={180} step={0.1} value={item.start} onChange={(value) => updateSegment(index, { start: value })} /><span>结束</span><InputNumber className="!w-24" min={0} max={180} step={0.1} value={item.end} onChange={(value) => updateSegment(index, { end: value })} /></div>
+              </div>)}</div>
+              <Button className="mt-2" icon={<PlusOutlined />} disabled={segments.length >= 80} onClick={() => setSegments((items) => { const end = items[items.length - 1]?.end || 0; return [...items, { text: '', start: end, end: Math.min(180, end + 3) }] })}>添加一句</Button>
+            </div>
+            <div><label className="mb-2 block text-sm font-medium">字幕样式</label><Select value={subtitleStyle} onChange={setSubtitleStyle} options={[{ value: 'pure', label: '简洁白' }, { value: 'vivid', label: '电商金' }, { value: 'violet', label: '品牌紫' }]} /></div>
+            <div className="rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-500">字幕会叠加到画面并保留原声音；无法自动擦除画面里原有的硬字幕。每条字幕需按时间顺序排列，不重叠，视频最长 180 秒。本地处理暂不扣点。</div>
+            <Button type="primary" size="large" block loading={submitting} disabled={uploading || estimating} onClick={createCaptions}>生成字幕视频</Button>
+          </>}
         </div>
-        <div className="rounded-2xl bg-white p-6 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">我的配音任务</h2><button onClick={load} className="text-xs text-purple-600"><ReloadOutlined /> 刷新</button></div>
-          {tasks.length === 0 ? <Empty description="暂无任务" /> : <div className="space-y-4">{tasks.map((task) => <div key={task.id} className="rounded-xl border border-gray-100 p-3"><div className="mb-2 flex justify-between text-xs text-gray-500"><span>{task.task_no}</span><span>{task.stage || task.status}</span></div>{task.status === 'success' && task.result?.videos?.[0]?.url ? <video controls className="w-full rounded-lg bg-black" src={task.result.videos[0].url} /> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}{task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}{(task.status === 'failed' || task.status === 'reconciling') && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新发起配音</Button>}</div>)}</div>}</div>
+        <div className="rounded-2xl bg-white p-6 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">我的处理任务</h2><button onClick={load} className="text-xs text-purple-600"><ReloadOutlined /> 刷新</button></div>
+          {tasks.length === 0 ? <Empty description="暂无任务" /> : <div className="space-y-4">{tasks.map((task) => <div key={task.id} className="rounded-xl border border-gray-100 p-3"><div className="mb-2 flex justify-between text-xs text-gray-500"><span>{task.module === 'subtitleEdit' ? '字幕' : '配音'} · {task.task_no}</span><span>{task.stage || task.status}</span></div>{!!task.result?.warnings?.length && <p className="mb-2 text-xs text-amber-600">{task.result.warnings.join('；')}</p>}{task.status === 'success' && task.result?.videos?.[0]?.url ? <video controls className="w-full rounded-lg bg-black" src={task.result.videos[0].url} /> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}{task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}{(task.status === 'failed' || task.status === 'reconciling') && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}{task.module === 'subtitleEdit' && task.status === 'success' && task.params?.segments && <Button className="mt-2" size="small" onClick={() => { setWorkMode('captions'); setVideoUrl(task.params.videoUrl); setSegments(task.params.segments); setSubtitleStyle(task.params.style || 'pure'); setSubtitleText(task.params.segments.map((item: SubtitleSegment) => item.text).join('')); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>再次校对</Button>}</div>)}</div>}</div>
       </div>
       <Modal title="添加授权音色" open={voiceModal} onCancel={() => setVoiceModal(false)} onOk={saveVoice} confirmLoading={savingVoice} okText="添加音色">
         <p className="mb-4 text-sm text-gray-500">上传 1–30 秒清晰人声，推荐 3–10 秒。请仅使用你有权使用的声音。</p>

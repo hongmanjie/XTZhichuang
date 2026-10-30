@@ -13,7 +13,7 @@ import { useUserStore } from '../stores/userStore'
 const FEATURES = [
   { key: 'hit-replica', title: '爆款复刻', desc: '参考视频语音与文字生成', badge: '部分可用', path: '/create/hit-replica', cover: '/images/dashboard/features/hit-replica.svg', hot: true },
   { key: 'video-goldTime', title: 'AI梦工厂', desc: '用产品图片生成展示视频', badge: '', path: '/create/video-goldTime', cover: '/images/dashboard/features/video-goldTime.svg' },
-  { key: 'ai-product-studio', title: 'AI商拍', desc: '透明商品图合成 AI 场景', badge: '', path: '/create/ai-product-studio', cover: '/images/dashboard/features/ai-product-studio.svg' },
+  { key: 'ai-product-studio', title: 'AI商拍', desc: '商品抠图并合成 AI 场景', badge: '', path: '/create/ai-product-studio', cover: '/images/dashboard/features/ai-product-studio.svg' },
   { key: 'video-generation', title: 'AI素材场', desc: '文字与首尾帧生成视频', badge: '', path: '/create/video-generation', cover: '/images/dashboard/features/video-generation.svg' },
   { key: 'video-analysis', title: '视频解析', desc: '提取视频语音和画面文字', badge: '', path: '/create/video-analysis', cover: '/images/dashboard/features/video-analysis.svg' },
   { key: 'digital-human', title: '百变数字人', desc: '快速创建多样化数字人视频', badge: '', path: '/create/digital-human', cover: '/images/dashboard/features/digital-human.svg' },

@@ -44,6 +44,19 @@ export const EMBED_DIMS = Number(process.env.EMBED_DIMS || 2048)
 
 export const realEnabled = () => (process.env.AI_REAL_ENABLED || 'true') === 'true'
 
+// An inexpensive read-only connection check before a new asynchronous submit.
+// Any HTTP response counts as reachable; only network failure prevents submission.
+async function requireModelGateConnection() {
+  try {
+    await fetch(MG_BASE, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(3000) })
+  } catch (cause) {
+    const error = new Error('模型网关暂时无法连接，任务未提交，请检查网络后重试')
+    error.code = 'MG_CONNECTION_UNAVAILABLE'
+    error.cause = cause
+    throw error
+  }
+}
+
 // ---------- 通用 HTTP ----------
 async function httpJson(url, { method = 'POST', headers = {}, body, timeoutMs = 120000 } = {}) {
   const ctrl = new AbortController()
@@ -125,9 +138,13 @@ export async function mgChat(messages, { model = MG_CHAT_MODEL, temperature = 0.
 }
 
 // ---------- 2. Qwen3.6 对话（SSE 流式），yield { delta } / { reasoning } ----------
-export async function* mgChatStream(messages, { model = MG_CHAT_MODEL, temperature = 0.7, max_tokens = 4096 } = {}) {
+export async function* mgChatStream(messages, { model = MG_CHAT_MODEL, temperature = 0.7, max_tokens = 4096, signal } = {}) {
   const ctrl = new AbortController()
+  const abort = () => ctrl.abort(signal?.reason)
+  if (signal?.aborted) abort()
+  else signal?.addEventListener('abort', abort, { once: true })
   const t = setTimeout(() => ctrl.abort(), 300000)
+  let reader
   try {
     const r = await fetch(`${MG_BASE}/infer`, {
       method: 'POST',
@@ -136,7 +153,7 @@ export async function* mgChatStream(messages, { model = MG_CHAT_MODEL, temperatu
       signal: ctrl.signal,
     })
     if (!r.ok || !r.body) throw new Error(`ModelGate流式失败 HTTP ${r.status}`)
-    const reader = r.body.getReader()
+    reader = r.body.getReader()
     const decoder = new TextDecoder()
     let buf = ''
     while (true) {
@@ -160,6 +177,9 @@ export async function* mgChatStream(messages, { model = MG_CHAT_MODEL, temperatu
     }
   } finally {
     clearTimeout(t)
+    signal?.removeEventListener('abort', abort)
+    ctrl.abort()
+    if (reader) { try { await reader.cancel() } catch {} }
   }
 }
 
@@ -389,6 +409,7 @@ export async function mgImageGen({ prompt, negative_prompt, size = [1024, 1024],
   if (seed !== undefined) body.seed = seed
   let taskId = resumeTaskId
   if (!taskId) {
+    await requireModelGateConnection()
     let response
     try { response = await httpJson(`${MG_BASE}/infer`, { headers: mgHeaders(idempotencyKey), body, timeoutMs: 60000 }) }
     catch (cause) {
@@ -445,6 +466,7 @@ export async function mgVideoGen({ prompt, soundscape, music, task = 't2av', siz
   if (!resumeTaskId && lastFrameSrc) body.last_frame_path = await toB64(lastFrameSrc)
   let taskId = resumeTaskId
   if (!taskId) {
+    await requireModelGateConnection()
     let response
     try {
       response = await httpJson(`${MG_BASE}/infer`, { headers: mgHeaders(idempotencyKey), body, timeoutMs: 60000 })

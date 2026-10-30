@@ -21,7 +21,7 @@ export default function AssetLibrary() {
   const [keyword, setKeyword] = useState('')
   const [searchValue, setSearchValue] = useState('')
   const [type, setType] = useState<MaterialType>('all')
-  const [source, setSource] = useState<'' | 'upload' | 'ai'>('')
+  const [source, setSource] = useState<'' | 'upload' | 'ai' | 'edit'>('')
   const [category, setCategory] = useState<string>('')
   const [list, setList] = useState<any[]>([])
   const [total, setTotal] = useState(0)
@@ -261,6 +261,7 @@ export default function AssetLibrary() {
                   { key: '', label: '全部来源' },
                   { key: 'upload', label: '本地上传' },
                   { key: 'ai', label: 'AI生成' },
+                  { key: 'edit', label: '本地剪辑' },
                 ].map((s) => (
                   <Button
                     key={s.key}
@@ -398,6 +399,7 @@ export default function AssetLibrary() {
                         <Tag color="purple" className="!text-[9px] !px-1">AI生成</Tag>
                       </span>
                     )}
+                    {item.source === 'edit' && <Tag color="blue" className="!text-[9px] !px-1">本地剪辑</Tag>}
                   </div>
                 </div>
               </div>

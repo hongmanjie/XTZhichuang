@@ -23,11 +23,16 @@ export default function AgentTest() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [skill, setSkill] = useState<string>('script')
+  const [changingSkill, setChangingSkill] = useState(false)
   const [skills, setSkills] = useState<any[]>([])
   const [chatModels, setChatModels] = useState<any[]>([])
   const [videoModels, setVideoModels] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const currentIdRef = useRef<number | null>(currentId)
+  const skipLoadRef = useRef<number | null>(null)
+  const loadSequenceRef = useRef(0)
+  currentIdRef.current = currentId
 
   useEffect(() => {
     fetchConversations()
@@ -40,9 +45,18 @@ export default function AgentTest() {
 
   useEffect(() => {
     if (conversationId) {
-      setCurrentId(+conversationId)
-      loadMessages(+conversationId)
+      const id = +conversationId
+      if (id !== currentIdRef.current) { abortRef.current?.abort(); abortRef.current = null; setSending(false) }
+      currentIdRef.current = id
+      setCurrentId(id)
+      if (skipLoadRef.current === id) skipLoadRef.current = null
+      else loadMessages(id)
     } else {
+      abortRef.current?.abort()
+      abortRef.current = null
+      setSending(false)
+      currentIdRef.current = null
+      loadSequenceRef.current++
       setMessages([])
       setCurrentId(null)
     }
@@ -60,10 +74,24 @@ export default function AgentTest() {
   }
 
   const loadMessages = async (id: number) => {
+    const sequence = ++loadSequenceRef.current
     try {
       const data = await api.conversationMessages(id)
+      if (sequence !== loadSequenceRef.current) return
       setMessages(data.messages || [])
+      if (data.conversation?.skill) setSkill(data.conversation.skill)
     } catch {}
+  }
+
+  const changeSkill = async (nextSkill: string) => {
+    if (sending || changingSkill || nextSkill === skill) return
+    if (!currentId) { setSkill(nextSkill); return }
+    const id = currentId
+    setChangingSkill(true)
+    try {
+      await api.setConversationSkill(id, nextSkill)
+      if (currentIdRef.current === id) setSkill(nextSkill)
+    } catch {} finally { setChangingSkill(false) }
   }
 
   const createNewConversation = async () => {
@@ -83,7 +111,9 @@ export default function AgentTest() {
       try {
         const data = await api.createConversation({ title: text.slice(0, 20), skill })
         convId = data.id
+        currentIdRef.current = convId
         setCurrentId(convId)
+        skipLoadRef.current = convId
         navigate(`/agent/${convId}`, { replace: true })
         fetchConversations()
       } catch { return }
@@ -101,12 +131,15 @@ export default function AgentTest() {
     try {
       const token = localStorage.getItem('token')
       const resp = await fetch(
-        `/api/conversations/chat?conversationId=${convId}&message=${encodeURIComponent(text)}`,
-        { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
+        '/api/conversations/chat/stream',
+        { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: convId, message: text }), signal: controller.signal }
       )
+      if (!resp.ok || !resp.body) throw new Error('会话请求失败')
       const reader = resp.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let completed = false
+      let reportedError = false
 
       while (true) {
         const { value, done } = await reader.read()
@@ -126,45 +159,56 @@ export default function AgentTest() {
           if (event === 'assistant.preview') {
             const data = JSON.parse(dataStr)
             setMessages((prev) => {
+              if (currentIdRef.current !== convId) return prev
               const next = [...prev]
               const last = next[next.length - 1]
-              if (last?.role === 'assistant') last.content = data.content
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: data.content }
               return next
             })
           } else if (event === 'message.done') {
             const data = JSON.parse(dataStr)
+            completed = true
             setMessages((prev) => {
+              if (currentIdRef.current !== convId) return prev
               const next = [...prev]
               const last = next[next.length - 1]
-              if (last?.role === 'assistant') last.content = data.content
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: data.content }
               return next
             })
             fetchConversations()
           } else if (event === 'task.error') {
             const data = JSON.parse(dataStr)
+            reportedError = true
             antdMessage.error(data.message || 'AI 生成失败')
             setMessages((prev) => {
+              if (currentIdRef.current !== convId) return prev
               const next = [...prev]
               const last = next[next.length - 1]
-              if (last?.role === 'assistant') last.content = `生成失败：${data.message || '请稍后重试'}`
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: `生成失败：${data.message || '请稍后重试'}` }
               return next
             })
           }
         }
       }
+      if (!completed && !reportedError) throw new Error('对话连接中断')
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         antdMessage.error('发送失败，请重试')
       }
+      setMessages((prev) => {
+        if (currentIdRef.current !== convId) return prev
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content ? `${last.content}\n（${e.name === 'AbortError' ? '已停止接收' : '连接中断'}）` : (e.name === 'AbortError' ? '已停止接收回复' : '生成失败，请稍后重试') }
+        return next
+      })
     } finally {
-      setSending(false)
-      abortRef.current = null
+      if (abortRef.current === controller) { setSending(false); abortRef.current = null }
     }
   }
 
   const handleStop = () => {
     abortRef.current?.abort()
-    setSending(false)
   }
 
   const handleDelete = async (id: number) => {
@@ -225,8 +269,8 @@ export default function AgentTest() {
               <Tag
                 key={s.key}
                 color={skill === s.key ? 'purple' : 'default'}
-                className="!cursor-pointer"
-                onClick={() => setSkill(s.key)}
+                className={sending || changingSkill ? '!cursor-not-allowed opacity-50' : '!cursor-pointer'}
+                onClick={() => { void changeSkill(s.key) }}
               >
                 {s.name}
               </Tag>
@@ -305,6 +349,7 @@ export default function AgentTest() {
           <div className="flex items-end gap-2">
             <Input.TextArea
               value={input}
+              maxLength={4000}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

@@ -80,10 +80,10 @@ function run(bin, args, timeoutMs = 180000) {
 
 // ---------- 口播文案 → 时间轴段落 ----------
 export function splitScript(text, totalDur) {
-  const clean = String(text || '').replace(/\s+/g, '').slice(0, 600)
+  const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 600)
   if (!clean) return []
   // 按中英文标点断句
-  let clauses = clean.split(/(?<=[，。！？；、…：,.!?;:])/).filter(Boolean)
+  let clauses = clean.split(/(?<=[，。！？；、…：,.!?;:])/).map((clause) => clause.trim()).filter(Boolean)
   // 短句/助词开头句并入前段
   const merged = []
   for (const c of clauses) {
@@ -112,10 +112,28 @@ export function splitScript(text, totalDur) {
 
 // ---------- ASS 字幕文件 ----------
 function assTime(sec) {
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = sec % 60
+  const ticks = Math.round(sec * 100)
+  const h = Math.floor(ticks / 360000)
+  const m = Math.floor((ticks % 360000) / 6000)
+  const s = (ticks % 6000) / 100
   return `${h}:${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}`
+}
+
+export function validateSubtitleSegments(segments, duration) {
+  if (!Array.isArray(segments) || segments.length < 1 || segments.length > 80) throw new Error('请填写 1–80 条字幕')
+  let previousEnd = 0
+  return segments.map((segment, index) => {
+    if (!segment || typeof segment.text !== 'string') throw new Error(`第 ${index + 1} 条字幕无效`)
+    const text = segment.text.replace(/[{}\\\r\n]/g, ' ').trim()
+    const start = Number(segment.start)
+    const end = Number(segment.end)
+    if (!text || text.length > 120) throw new Error(`第 ${index + 1} 条字幕须为 1–120 字`)
+    if (typeof segment.start !== 'number' || typeof segment.end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end - start < 0.05 || end > duration + 0.01 || start < previousEnd - 0.001) {
+      throw new Error(`第 ${index + 1} 条字幕时间无效，请检查先后顺序和视频时长`)
+    }
+    previousEnd = end
+    return { text, start, end: Math.min(end, duration) }
+  })
 }
 
 export function buildAss(segments, styleKey, playRes) {
@@ -140,7 +158,7 @@ export function buildAss(segments, styleKey, playRes) {
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ]
   const events = segments.map((seg) => {
-    const txt = seg.text.replace(/\{/g, '').replace(/\}/g, '')
+    const txt = seg.text.replace(/[{}\\\r\n]/g, ' ')
     return `Dialogue: 0,${assTime(seg.start)},${assTime(seg.end)},Main,,0,0,0,,{\\fad(160,140)}${txt}`
   })
   return header.join('\n') + '\n' + events.join('\n') + '\n'
@@ -229,10 +247,13 @@ async function probeAudioDuration(file) {
 //   voice     voiceId（1-4，传则触发 TTS 配音）
 //   audioUrl  已合成的配音文件（优先于 voice，避免重复合成）
 // 时长策略：成片时长 = max(视频, 配音)；视频短于配音时末帧冻结补齐（tpad），配音短于视频时静音填充（apad）
-export async function burnSubtitles(videoUrl, { text, style = DEFAULT_SUBTITLE_STYLE, voice = null, audioUrl = null, burn = true, subtitleDuration = null } = {}) {
+export async function burnSubtitles(videoUrl, { text, segments: requestedSegments = null, style = DEFAULT_SUBTITLE_STYLE, voice = null, audioUrl = null, burn = true, subtitleDuration = null } = {}) {
   const src = await resolveVideo(videoUrl)
   let audioTmp = null // 内部合成的配音临时文件路径
   let assPath = null // ASS 字幕临时文件路径
+  let outPath = null
+  let covPath = null
+  let completed = false
   try {
     const { width, height, duration: videoDur } = await probeVideo(src.localPath)
 
@@ -256,7 +277,9 @@ export async function burnSubtitles(videoUrl, { text, style = DEFAULT_SUBTITLE_S
 
     // ----- 字幕时间轴（覆盖全片）-----
     let segments = []
-    if (text && burn) {
+    if (requestedSegments && burn) {
+      segments = validateSubtitleSegments(requestedSegments, effectiveDur)
+    } else if (text && burn) {
       const duration = Number(subtitleDuration)
       segments = splitScript(text, Number.isFinite(duration) && duration > 0 ? Math.min(duration, effectiveDur) : effectiveDur)
     }
@@ -272,8 +295,8 @@ export async function burnSubtitles(videoUrl, { text, style = DEFAULT_SUBTITLE_S
     const stamp = `${Date.now()}_${Math.round(Math.random() * 1e4)}`
     const outName = `sub_${stamp}.mp4`
     const covName = `cov_${stamp}.jpg`
-    const outPath = path.join(UPLOAD_DIR, outName)
-    const covPath = path.join(UPLOAD_DIR, covName)
+    outPath = path.join(UPLOAD_DIR, outName)
+    covPath = path.join(UPLOAD_DIR, covName)
 
     // ----- ffmpeg 滤镜链 -----
     const assFilter = assPath ? `ass='${escapeFilterPath(assPath)}':fontsdir='${escapeFilterPath(FONTS_DIR)}'` : null
@@ -332,6 +355,7 @@ export async function burnSubtitles(videoUrl, { text, style = DEFAULT_SUBTITLE_S
       cover = fs.existsSync(covPath) ? `/api/files/${covName}` : null
     } catch { /* 封面失败不影响成片 */ }
 
+    completed = true
     return {
       url: `/api/files/${outName}`,
       cover,
@@ -349,5 +373,6 @@ export async function burnSubtitles(videoUrl, { text, style = DEFAULT_SUBTITLE_S
     if (src.isTemp) { try { fs.unlinkSync(src.localPath) } catch {} }
     if (assPath) { try { fs.unlinkSync(assPath) } catch {} }
     if (audioTmp) { try { fs.unlinkSync(audioTmp) } catch {} }
+    if (!completed) for (const file of [outPath, covPath]) { if (file) { try { fs.unlinkSync(file) } catch {} } }
   }
 }

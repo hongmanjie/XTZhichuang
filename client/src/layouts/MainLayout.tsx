@@ -30,7 +30,7 @@ const MENUS = [
     children: [
       { key: '/create/hit-replica', label: '爆款复刻', desc: '参考语音与文字生成视频', badge: 'HOT' },
       { key: '/create/video-goldTime', label: 'AI梦工厂', desc: '一张产品图片生成爆款' },
-      { key: '/create/ai-product-studio', label: 'AI商拍', desc: '透明商品图合成 AI 场景' },
+      { key: '/create/ai-product-studio', label: 'AI商拍', desc: '商品抠图并合成 AI 场景' },
       { key: '/create/video-analysis', label: '视频解析', desc: '识别视频语音和画面文字' },
       { key: '/create/digital-human', label: '百变数字人', desc: '快速创建数字人视频' },
       { key: '/create/hd_video', label: '高清视频', desc: '高清修复与增强' },

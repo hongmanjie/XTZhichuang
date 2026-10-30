@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import db from '../db.js'
 import { authRequired } from '../middleware/auth.js'
 import { success, fail, page } from '../utils/response.js'
+import { teamCond, teamUserIds } from '../utils/teamScope.js'
 
 const router = express.Router()
 
@@ -19,16 +20,17 @@ router.get('/charge/packages', authRequired, (req, res) => {
 // 会员状态（对标原站充值页顶部信息条）
 router.get('/charge/memberStatus', authRequired, (req, res) => {
   const u = db.prepare('SELECT id, name, vip_level, vip_expire_at, ai_points, storage_total FROM users WHERE id = ?').get(req.user.id)
-  const memberCount = db.prepare('SELECT COUNT(*) c FROM users WHERE status = 1').get().c
-  const seatLimit = u.vip_level === 'enterprise' ? 50 : u.vip_level === 'trial' ? 1 : 5
-  const usedStorage = db.prepare("SELECT IFNULL(SUM(size),0) s FROM materials").get().s
+  const members = teamUserIds(req.user.id)
+  const memberCount = db.prepare(`SELECT COUNT(*) c FROM users WHERE status = 1 AND id IN (${members.map(() => '?').join(',')})`).get(...members).c
+  const scope = teamCond(req.user.id)
+  const usedStorage = db.prepare(`SELECT IFNULL(SUM(size),0) s FROM materials WHERE ${scope.clause}`).get(...scope.args).s
   res.json(success({
     vip_level: u.vip_level || 'trial',
     vip_expire_at: u.vip_expire_at || '',
     ai_points: u.ai_points,
-    points_total: 1010,
+    points_total: null,
     member_count: memberCount,
-    seat_limit: seatLimit,
+    seat_limit: null,
     storage_used: usedStorage,
     storage_total: u.storage_total || 10737418240,
   }))

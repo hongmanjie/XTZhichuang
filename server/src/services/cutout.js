@@ -32,6 +32,8 @@ export async function cutoutProduct(imageUrl) {
   if (!stat.isFile() || stat.size > 10 * 1024 * 1024) throw new Error('商品图片不能超过 10 MB')
   const info = await probeImage(input)
   if (info.width > 8192 || info.height > 8192 || info.width * info.height > 40_000_000) throw new Error('商品图片尺寸过大')
+  // Requests can enter the queue while another image's metadata is being read.
+  if (queued >= 4) throw new Error('自动抠图任务较多，请稍后再试')
   if (!checkedModel) {
     if (!fs.existsSync(model)) throw new Error('本地抠图模型尚未安装')
     const hash = crypto.createHash('sha256').update(fs.readFileSync(model)).digest('hex')

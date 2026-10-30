@@ -101,9 +101,12 @@ export const api = {
   uploadMaterial: (formData: FormData) =>
     post('/material/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   voiceProfiles: () => get('/voice/profiles'),
+  voiceStatus: () => get<{ available: boolean | null; reason: string }>('/voice/status', { timeout: 5000 }),
   uploadVoice: (data: FormData) => post('/voice/profiles', data, { timeout: 150000 }),
   deleteVoice: (id: number) => del(`/voice/profiles/${id}`),
   dubVoice: (data: any) => post('/voice/dub', data),
+  estimateSubtitles: (data: { videoUrl: string; text: string }) => post('/voice/subtitles/estimate', data),
+  createSubtitles: (data: { videoUrl: string; segments: { text: string; start: number; end: number }[]; style: string }) => post('/voice/subtitles/create', data),
   updateMaterial: (data: any) => post('/material/update', data),
   deleteMaterials: (data: any) => post('/material/delete', data),
   materialCategories: () => get('/material/categories'),
@@ -141,6 +144,7 @@ export const api = {
 
   // 智能剪辑
   mixList: (params?: any) => get('/ai-mix/list', { params }),
+  joinVideos: (data: { videoUrls: string[]; title?: string }) => post('/ai-mix/join', data),
   mixDetail: (id: number) => get('/ai-mix/detail', { params: { id } }),
   saveMix: (data: any) => post('/ai-mix/save', data),
   deleteMix: (data: any) => post('/ai-mix/delete', data),
@@ -152,6 +156,7 @@ export const api = {
   skillOptions: () => get('/skills/options'),
   conversations: (params?: any) => get('/conversations', { params }),
   createConversation: (data?: any) => post('/conversations', data),
+  setConversationSkill: (id: number, skill: string) => post(`/conversations/${id}/skill`, { skill }),
   conversationMessages: (id: number) => get(`/conversations/${id}/messages`),
   deleteConversation: (data: any) => post('/conversations/delete', data),
 

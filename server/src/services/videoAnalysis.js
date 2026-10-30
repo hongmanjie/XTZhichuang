@@ -4,6 +4,21 @@ import path from 'path'
 import { FFMPEG, localMediaPath, probeMedia, runMedia } from './mediaTools.js'
 import { chat, mgASRDetails, mgOCR } from './aiProviders.js'
 
+// Detect abrupt visual changes only; a detected cut does not explain scene content.
+export async function detectSceneChanges(input, duration) {
+  const { stderr } = await runMedia(FFMPEG, ['-hide_banner', '-nostats', '-loglevel', 'info', '-i', input, '-an',
+    '-vf', 'scale=320:-2,select=gt(scene\\,0.32),showinfo', '-f', 'null', '-'], 180000)
+  const times = []
+  let truncated = false
+  for (const match of stderr.matchAll(/\bpts_time:([\d.]+)/g)) {
+    const time = Number(match[1])
+    if (!Number.isFinite(time) || time < 0.2 || time > duration - 0.2 || (times.length && time - times[times.length - 1] < 0.5)) continue
+    if (times.length >= 50) { truncated = true; break }
+    times.push(Math.round(time * 100) / 100)
+  }
+  return { times, truncated, method: 'ffmpeg-scene-change' }
+}
+
 export async function analyzeVideo(params, onStage = () => {}) {
   const input = localMediaPath(params.videoUrl)
   if (!input || !fs.existsSync(input)) throw new Error('视频文件不存在')
@@ -16,6 +31,7 @@ export async function analyzeVideo(params, onStage = () => {}) {
   let speechChecked = false
   const frames = []
   let successfulOcr = 0
+  let sceneChanges = null
   try {
     if (video.hasAudio) {
       onStage('正在提取并识别语音')
@@ -44,6 +60,9 @@ export async function analyzeVideo(params, onStage = () => {}) {
       }
     }
     if (!speechChecked && !successfulOcr) throw new Error(video.hasAudio ? '语音识别和画面文字识别均未完成' : '视频无音轨且画面文字识别未完成')
+    onStage('正在检测疑似画面切换')
+    try { sceneChanges = await detectSceneChanges(input, video.duration) }
+    catch (error) { warnings.push(`画面切换检测未完成：${error.message}`) }
     let summary = ''
     const recognized = [transcript.text ? `语音转写：${transcript.text}` : '', ...frames.filter((frame) => frame.text).map((frame) => `${frame.time}秒画面文字：${frame.text}`)].filter(Boolean).join('\n')
     if (recognized) {
@@ -57,8 +76,8 @@ export async function analyzeVideo(params, onStage = () => {}) {
     }
     return {
       title: '视频文字与语音解析', engine: 'real', provider: 'modelgate', model: 'FunASR-Nano / PPOCR-v5-Server', generatedAt: new Date().toISOString(), warnings,
-      analysis: { videoUrl: params.videoUrl, duration: video.duration, transcript: transcript.text, transcriptSegments: transcript.segments, frames, summary,
-        limitation: '只识别语音和抽帧中的文字，暂未理解人物、动作、画面语义或镜头结构；识别内容可能有误。' },
+      analysis: { videoUrl: params.videoUrl, duration: video.duration, transcript: transcript.text, transcriptSegments: transcript.segments, frames, sceneChanges, summary,
+        limitation: '只识别语音、抽帧文字和疑似画面切换，暂未理解人物、动作、画面语义或镜头结构；识别内容可能有误。' },
     }
   } finally {
     for (const file of files) { try { fs.unlinkSync(file) } catch {} }
