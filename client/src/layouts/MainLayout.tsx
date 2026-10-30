@@ -12,6 +12,7 @@ import {
 import { Avatar, Badge, Dropdown, Popover, List, Tag, Button, Tooltip, Modal } from 'antd'
 import { useUserStore } from '../stores/userStore'
 import { useIsAdmin } from '../utils/access'
+import { withBase } from '../utils/base'
 import { api } from '../api/request'
 import BrandLogo from '../components/BrandLogo'
 
@@ -209,8 +210,8 @@ export default function MainLayout() {
       >
         {/* Logo */}
         <div className="flex h-14 cursor-pointer items-center gap-2 border-b border-mf-border2 px-4" onClick={() => navigate('/dashboard')}>
-          <BrandLogo size={28} />
-          {!collapsed && <span className="text-base font-bold text-white">兴图智创</span>}
+          <BrandLogo size={22} />
+          {!collapsed && <span className="min-w-0 truncate text-xs font-bold text-white">兴图AI视频创作平台</span>}
         </div>
 
         {/* 菜单 */}
@@ -308,7 +309,7 @@ export default function MainLayout() {
             className="flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs text-mf-faint hover:bg-purple-600/10 hover:text-mf-dim"
             onClick={() => setCollapsed(!collapsed)}
           >
-            <img src="/images/menu/icon_collapsed_left.png" alt="" className={`h-3 w-3 transition-transform ${collapsed ? 'rotate-180' : ''} opacity-70 invert`} />
+            <img src={withBase('/images/menu/icon_collapsed_left.png')} alt="" className={`h-3 w-3 transition-transform ${collapsed ? 'rotate-180' : ''} opacity-70 invert`} />
             {!collapsed && '收起菜单'}
           </button>
         </div>
@@ -321,7 +322,7 @@ export default function MainLayout() {
           {/* 公告跑马灯 */}
           <div className="flex min-w-0 flex-1 items-center gap-3 pr-4">
             <div className="relative min-w-0 flex-1 overflow-hidden rounded-full border border-mf-border2 bg-mf-card2 py-1.5 pl-9 pr-3">
-              <img src="/images/laba.png" alt="" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+              <img src={withBase('/images/laba.png')} alt="" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
               <div className="mf-marquee whitespace-nowrap text-xs text-mf-sub">
                 {ANNOUNCEMENTS.map((a, i) => (
                   <span key={i} className="mx-8">{a}</span>
@@ -356,7 +357,7 @@ export default function MainLayout() {
                       <List.Item className="!px-0">
                         <div className="flex w-full items-center gap-2">
                           <img
-                            src={item.status === 'running' ? '/images/task/task_list_active.gif' : '/images/task/task_list_idle.png'}
+                            src={withBase(item.status === 'running' ? '/images/task/task_list_active.gif' : '/images/task/task_list_idle.png')}
                             alt=""
                             className="h-4 w-4"
                           />
@@ -429,7 +430,7 @@ export default function MainLayout() {
             {/* 用户信息 */}
             <Dropdown menu={userMenu} placement="bottomRight">
               <div className="flex cursor-pointer items-center gap-2">
-                <Avatar size={30} src={userInfo?.avatar} icon={<UserOutlined />} className="!bg-purple-600" />
+                <Avatar size={30} src={withBase(userInfo?.avatar)} icon={<UserOutlined />} className="!bg-purple-600" />
                 <span className="text-sm text-mf-text">{userInfo?.name || '用户'}</span>
                 <DownOutlined className="text-[10px] text-mf-faint" />
               </div>

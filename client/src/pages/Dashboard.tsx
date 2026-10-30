@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import { api } from '../api/request'
 import { useUserStore } from '../stores/userStore'
+import { withBase } from "../utils/base"
 
 // AI创作功能卡片（对标原站：含 HOT 角标与写实封面）
 const FEATURES = [
@@ -38,6 +39,12 @@ const CASES = [
   { id: 6, title: '素材库高效管理技巧', cover: '/images/blog/blog02.png', tag: '案例展示', cat: '案例展示' },
 ]
 const CASE_TABS = ['全部', '案例展示', '智能剪辑', 'AI创作']
+
+// 子路径部署:静态资源补前缀(path 为路由路径,由 Router basename 处理,不改)
+for (const item of [...FEATURES, ...GUIDE_STEPS, ...CASES] as Array<Record<string, any>>) {
+  if (item.cover) item.cover = withBase(item.cover)
+  if (item.icon) item.icon = withBase(item.icon)
+}
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -112,7 +119,7 @@ export default function Dashboard() {
           <button className="mt-5 flex items-center gap-1.5 rounded-full bg-white px-4 py-1.5 text-xs font-bold text-black transition-transform group-hover:scale-105">
             立即体验 <RightOutlined className="text-[10px]" />
           </button>
-          <img src="/images/tutorial/creation_arrow.png" alt="" className="absolute bottom-2 right-2 h-14 w-14 opacity-80" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          <img src={withBase('/images/tutorial/creation_arrow.png')} alt="" className="absolute bottom-2 right-2 h-14 w-14 opacity-80" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         </div>
         {GUIDE_STEPS.map((step) => (
           <div
@@ -121,7 +128,7 @@ export default function Dashboard() {
             onClick={() => navigate(step.path)}
           >
             <span className="absolute right-3 top-2 text-2xl font-black text-mf-border transition-colors group-hover:text-purple-500/40">{step.no}</span>
-            <img src={step.icon} alt="" className="h-8 w-8" onError={(e) => { (e.target as HTMLImageElement).src = '/images/menu/center.png' }} />
+            <img src={withBase(step.icon)} alt="" className="h-8 w-8" onError={(e) => { (e.target as HTMLImageElement).src = withBase('/images/menu/center.png') }} />
             <h3 className="mt-3 text-sm font-medium text-mf-text">{step.title}</h3>
             <p className="mt-0.5 line-clamp-1 text-[11px] text-mf-faint">{step.desc}</p>
             <button className="mt-3 rounded-full border border-purple-500/50 px-3 py-0.5 text-[11px] text-mf-accent transition-colors group-hover:bg-purple-600/20">
@@ -144,7 +151,7 @@ export default function Dashboard() {
               <span className="absolute left-2 top-2 z-10 rounded bg-gradient-to-r from-red-500 to-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{f.badge}</span>
             )}
             <div className="relative aspect-[4/3] overflow-hidden bg-gradient-to-br from-[#241a44] to-mf-card2">
-              <img src={f.cover} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0' }} />
+              <img src={withBase(f.cover)} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0' }} />
               <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100">
                 <PlayCircleOutlined className="text-3xl text-white/90" />
               </div>
@@ -300,7 +307,7 @@ export default function Dashboard() {
         {filteredCases.map((c) => (
           <div key={c.id} className="group cursor-pointer" onClick={() => navigate('/blog')}>
             <div className="relative mb-2 aspect-video overflow-hidden rounded-xl border border-mf-border2 bg-mf-card2">
-              <img src={c.cover} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0' }} />
+              <img src={withBase(c.cover)} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0' }} />
               <span className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{c.tag}</span>
             </div>
             <p className="line-clamp-2 text-xs text-mf-sub">{c.title}</p>
@@ -326,7 +333,7 @@ export default function Dashboard() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600/15 text-sm font-bold text-mf-accent">
                 {step.no}
               </div>
-              <img src={step.icon} alt="" className="h-9 w-9" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <img src={withBase(step.icon)} alt="" className="h-9 w-9" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               <div className="flex-1">
                 <h3 className="text-sm font-medium text-mf-text">{step.title}</h3>
                 <p className="text-xs text-mf-faint">{step.desc}</p>

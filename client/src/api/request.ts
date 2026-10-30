@@ -1,9 +1,10 @@
 import axios from 'axios'
 import { message } from 'antd'
 import { useUserStore } from '../stores/userStore'
+import { withBase } from '../utils/base'
 
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: withBase('/api'),
   timeout: 60000,
 })
 
@@ -19,9 +20,10 @@ request.interceptors.request.use((config) => {
 // 统一登出：清空 store + localStorage，并跳回登录页（登录页本身除外）
 const forceLogout = (msg?: string) => {
   useUserStore.getState().logout()
-  if (!location.pathname.startsWith('/login')) {
+  const loginPath = withBase('/login')
+  if (!location.pathname.startsWith(loginPath)) {
     if (msg) message.warning(msg)
-    location.href = '/login'
+    location.href = loginPath
   }
 }
 

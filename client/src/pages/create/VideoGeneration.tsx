@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, Empty, message, Select, Spin } from 'antd'
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from "../../utils/base"
 
 type FrameRole = 'first' | 'last'
 type Frame = { type: 'image'; role: FrameRole; url: string; name: string }
@@ -88,7 +89,7 @@ export default function VideoGeneration() {
                   <div className="mb-2 text-xs text-[#c0b6db]">{role === 'first' ? '首帧' : '尾帧'}（可选）</div>
                   <label className="relative flex h-28 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-[#554477] bg-[#0d0918] hover:border-purple-400">
                     <input type="file" hidden accept="image/jpeg,image/png,image/webp" disabled={!!uploading} onChange={(event) => uploadFrame(role, event)} />
-                    {uploading === role ? <Spin /> : frame ? <img src={frame.url} alt={frame.name} className="h-full w-full object-contain" /> : <span className="text-center text-xs text-[#998dbb]"><PlusOutlined /><br />上传图片</span>}
+                    {uploading === role ? <Spin /> : frame ? <img src={withBase(frame.url)} alt={frame.name} className="h-full w-full object-contain" /> : <span className="text-center text-xs text-[#998dbb]"><PlusOutlined /><br />上传图片</span>}
                   </label>
                   {frame && <button className="mt-1 text-xs text-[#a79ac7] hover:text-white" onClick={() => setFrames((old) => ({ ...old, [role]: undefined }))}>移除</button>}
                 </div>
@@ -144,7 +145,7 @@ function TaskCard({ task, refresh }: { task: VideoTask; refresh: () => void }) {
   return (
     <div className="overflow-hidden rounded-xl border border-[#302646] bg-[#140e22]">
       <div className="flex aspect-video items-center justify-center bg-black">
-        {task.status === 'success' && video?.url ? <video src={video.url} poster={video.cover || undefined} controls className="h-full w-full" /> : active ? <div className="text-center"><Spin /><div className="mt-3 text-xs text-[#b3a4d1]">{task.stage || '任务进行中'}</div></div> : <span className="text-sm text-[#b3a4d1]">{task.status === 'reconciling' ? '上游状态待核对' : task.status === 'canceled' ? '已取消' : '生成失败'}</span>}
+        {task.status === 'success' && video?.url ? <video src={withBase(video.url)} poster={withBase(video.cover || undefined)} controls className="h-full w-full" /> : active ? <div className="text-center"><Spin /><div className="mt-3 text-xs text-[#b3a4d1]">{task.stage || '任务进行中'}</div></div> : <span className="text-sm text-[#b3a4d1]">{task.status === 'reconciling' ? '上游状态待核对' : task.status === 'canceled' ? '已取消' : '生成失败'}</span>}
       </div>
       <div className="p-4"><div className="truncate text-sm">{task.title}</div><div className="mt-1 text-xs text-[#9386b0]">{task.task_no} · {task.points_cost} 点</div>
         {video?.resolution && <div className="mt-1 text-xs text-[#9386b0]">{video.resolution} · {Number(video.duration).toFixed(1)} 秒</div>}

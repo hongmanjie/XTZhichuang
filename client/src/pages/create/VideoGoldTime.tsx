@@ -5,6 +5,7 @@ import {
   ReloadOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from "../../utils/base"
 
 // ============ 案例数据（海报素材由 tools/gen-factory-cases.mjs 生成） ============
 const CATS = ['全部', '通用场景', '节日气氛', '毛绒质感', '微缩小人', '切开产品', '樱花系列', '产品蛋糕', '地标建筑', '服饰']
@@ -152,7 +153,7 @@ export default function VideoGoldTime() {
                   onClick={() => setPreviewCase(c)}
                 >
                   <div className="relative aspect-[9/16] overflow-hidden">
-                    <img src={c.cover} alt={c.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                    <img src={withBase(c.cover)} alt={c.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
                     <span className="absolute left-2 top-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-white backdrop-blur">{c.cat}</span>
                     <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/35 group-hover:opacity-100">
                       <span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">查看示例提示词</span>
@@ -187,7 +188,7 @@ export default function VideoGoldTime() {
                     onClick={() => t.status === 'success' && setPreviewTask(t)}
                   >
                     <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-[#241a44] to-[#120d20]">
-                      {cover && <img src={cover} alt="" className="h-full w-full object-cover opacity-80 transition-transform duration-500 group-hover:scale-105" />}
+                      {cover && <img src={withBase(cover)} alt="" className="h-full w-full object-cover opacity-80 transition-transform duration-500 group-hover:scale-105" />}
                       {(t.status === 'running' || t.status === 'pending') && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45">
                           <LoadingOutlined className="text-xl text-purple-300" spin />
@@ -227,7 +228,7 @@ export default function VideoGoldTime() {
               {uploading ? (
                 <LoadingOutlined className="text-lg text-purple-300" spin />
               ) : imageUrl ? (
-                <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+                <img src={withBase(imageUrl)} alt="" className="h-full w-full object-cover" />
               ) : (
                 <PlusOutlined className="text-lg text-[#7d74a3]" />
               )}
@@ -263,7 +264,7 @@ export default function VideoGoldTime() {
       <Modal open={!!previewCase} onCancel={() => setPreviewCase(null)} footer={null} width={720} centered>
         {previewCase && (
           <div className="flex gap-5 pt-4">
-            <img src={previewCase.cover} alt="" className="w-64 rounded-xl border border-[#2a2140]" />
+            <img src={withBase(previewCase.cover)} alt="" className="w-64 rounded-xl border border-[#2a2140]" />
             <div className="flex flex-1 flex-col">
               <Tag color="purple" className="!w-fit">{previewCase.cat}</Tag>
               <h3 className="mt-2 text-lg font-bold text-[#e6e1f5]">{previewCase.title}</h3>
@@ -296,11 +297,11 @@ export default function VideoGoldTime() {
         {!!previewTask?.result?.warnings?.length && <p className="mb-3 text-xs leading-5 text-amber-500">{previewTask.result.warnings.join('；')}</p>}
         {previewTask?.result?.videos?.map((v: any, i: number) => (
           <div key={i} className="mb-3">
-            <video src={v.url} poster={v.cover || undefined} controls className="w-full rounded-xl bg-black" preload={v.cover ? 'none' : 'metadata'} />
+            <video src={withBase(v.url)} poster={withBase(v.cover || undefined)} controls className="w-full rounded-xl bg-black" preload={v.cover ? 'none' : 'metadata'} />
             <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#7d74a3]">
               <span>{v.name} · {v.duration}s · {v.resolution}</span>
               <div className="flex gap-3">
-                <a href={v.url} target="_blank" rel="noreferrer" className="text-[#c4b5fd] hover:text-white">下载</a>
+                <a href={withBase(v.url)} target="_blank" rel="noreferrer" className="text-[#c4b5fd] hover:text-white">下载</a>
                 <button
                   className="text-[#f87171] hover:text-red-400"
                   onClick={async () => { await api.deleteTasks({ ids: [previewTask.id] }); setPreviewTask(null); loadTasks() }}

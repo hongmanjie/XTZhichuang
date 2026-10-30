@@ -13,7 +13,7 @@ function setMediaCookie(res, token) {
 // 登录页初始化（站点配置）
 router.get('/login/init', (req, res) => {
   res.json(success({
-    siteName: '兴图智创',
+    siteName: '兴图AI视频创作平台',
     slogan: '电商广告视频 · AI分镜智创',
     loginBg: '/images/login-bg.png',
     loginTypes: ['password'],

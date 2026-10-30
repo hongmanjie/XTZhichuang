@@ -1,6 +1,9 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_BASE_PATH: /xtzc/
     image: yimetai-app:local
     restart: unless-stopped
     environment:
@@ -11,6 +14,7 @@ services:
       MODELGATE_BASE: ${MODELGATE_BASE:?Set MODELGATE_BASE in the deployment environment}
       MODELGATE_ENABLED: "true"
       AI_REAL_ENABLED: "true"
+      APP_BASE_PATH: "/xtzc"
       AI_TASK_CONCURRENCY: ${AI_TASK_CONCURRENCY:-1}
       TTS_TASK_CONCURRENCY: ${TTS_TASK_CONCURRENCY:-1}
       INDEX_TTS_BASE_URL: ${INDEX_TTS_BASE_URL:-}

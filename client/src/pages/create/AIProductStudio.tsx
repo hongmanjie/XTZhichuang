@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, Empty, Input, message, Select, Spin, Tag } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from "../../utils/base"
 
 type Material = { id: number; name: string; url: string }
 type Task = { id: number; task_no: string; status: string; stage?: string; error?: string; result?: any }
@@ -82,8 +83,8 @@ export default function AIProductStudio() {
             <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 text-sm hover:border-purple-400"><input type="file" hidden accept="image/png,image/jpeg,image/webp" disabled={uploading || preparing} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = '' }} />{uploading ? '上传中…' : '上传图片'}</label></div>
           {preparing && <div className="mt-3 rounded-lg bg-gray-50 p-4 text-sm text-gray-500"><Spin size="small" /> 正在检查并处理商品主体，请稍候…</div>}
           {sourceUrl && !preparing && <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-gray-100 p-2"><p className="mb-2 text-xs text-gray-500">原图</p><img src={sourceUrl} alt="商品原图" className="mx-auto max-h-48 object-contain" /></div>
-            {imageUrl ? <div className="rounded-lg bg-gray-100 p-2"><p className="mb-2 text-xs text-gray-500">{preparedMethod === 'original' ? '使用原透明图' : '自动抠图结果'}</p><img src={imageUrl} alt="待合成的商品主体" className="mx-auto max-h-48 object-contain" /></div>
+            <div className="rounded-lg bg-gray-100 p-2"><p className="mb-2 text-xs text-gray-500">原图</p><img src={withBase(sourceUrl)} alt="商品原图" className="mx-auto max-h-48 object-contain" /></div>
+            {imageUrl ? <div className="rounded-lg bg-gray-100 p-2"><p className="mb-2 text-xs text-gray-500">{preparedMethod === 'original' ? '使用原透明图' : '自动抠图结果'}</p><img src={withBase(imageUrl)} alt="待合成的商品主体" className="mx-auto max-h-48 object-contain" /></div>
               : <div className="flex flex-col items-center justify-center rounded-lg bg-gray-50 p-3 text-center text-xs text-gray-500"><span>图片尚未处理成功</span><Button className="mt-2" size="small" onClick={() => { void prepare(sourceUrl) }}>重新处理</Button></div>}
           </div>}
           <p className="mt-2 text-xs leading-5 text-gray-500">支持 10 MB 以内的 JPG、PNG、WebP。普通照片会自动抠图；透明 PNG 可直接使用。请先检查主体是否完整、是否保留手或其他物体，必要时使用透明 PNG。商品按原图合成，不会重新绘制包装文字。</p>
@@ -102,8 +103,8 @@ export default function AIProductStudio() {
           <div className="mb-2 flex items-center justify-between text-xs text-gray-500"><span>{task.task_no}</span><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : 'processing'}>{task.stage || task.status}</Tag></div>
           {task.status === 'success' && task.result?.images?.[0]?.url ? <>
             {!!task.result.warnings?.length && <p className="mb-2 text-xs leading-5 text-amber-600">{task.result.warnings.join('；')}</p>}
-            <img src={task.result.images[0].url} alt="生成的商品场景图" className="w-full rounded-lg" />
-            <a className="mt-2 inline-block text-xs text-purple-600" href={task.result.images[0].url} target="_blank" rel="noreferrer">打开图片</a>
+            <img src={withBase(task.result.images[0].url)} alt="生成的商品场景图" className="w-full rounded-lg" />
+            <a className="mt-2 inline-block text-xs text-purple-600" href={withBase(task.result.images[0].url)} target="_blank" rel="noreferrer">打开图片</a>
           </> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}
           {task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}
           {['failed', 'reconciling'].includes(task.status) && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}

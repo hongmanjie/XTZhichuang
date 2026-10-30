@@ -12,6 +12,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/request'
 import { ESStatusBadge } from '../../components/ESStatusBadge'
+import { withBase } from "../../utils/base"
 
 type MaterialType = 'image' | 'video' | 'audio' | 'all'
 
@@ -364,10 +365,10 @@ export default function AssetLibrary() {
                 {/* 封面 */}
                 <div className="flex aspect-square items-center justify-center overflow-hidden bg-gray-50">
                   {item.type === 'image' ? (
-                    <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={withBase(item.url)} alt="" className="h-full w-full object-cover" loading="lazy" />
                   ) : item.type === 'video' ? (
                     <div className="relative h-full w-full">
-                      <video src={item.url} poster={item.cover || undefined} className="h-full w-full object-cover" muted preload={item.cover ? 'none' : 'metadata'} />
+                      <video src={withBase(item.url)} poster={withBase(item.cover || undefined)} className="h-full w-full object-cover" muted preload={item.cover ? 'none' : 'metadata'} />
                       <div className="absolute inset-0 flex items-center justify-center">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50">
                           <VideoCameraOutlined className="text-white" />
@@ -493,9 +494,9 @@ export default function AssetLibrary() {
                 )}
                 <div className="relative aspect-video bg-gray-50">
                   {item.type === 'image' ? (
-                    <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={withBase(item.url)} alt="" className="h-full w-full object-cover" loading="lazy" />
                   ) : (
-                    <video src={item.url} poster={item.cover || undefined} className="h-full w-full object-cover" muted preload={item.cover ? 'none' : 'metadata'} />
+                    <video src={withBase(item.url)} poster={withBase(item.cover || undefined)} className="h-full w-full object-cover" muted preload={item.cover ? 'none' : 'metadata'} />
                   )}
                   <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white">
                     {item.duration ? `${Math.floor(item.duration / 60)}:${String(Math.floor(item.duration % 60)).padStart(2, '0')}` : ''}
@@ -556,9 +557,9 @@ export default function AssetLibrary() {
           <div className="flex gap-4">
             <div className="flex-1">
               {preview.type === 'image' ? (
-                <img src={preview.url} alt="" className="w-full rounded-lg" />
+                <img src={withBase(preview.url)} alt="" className="w-full rounded-lg" />
               ) : (
-                <video src={preview.url} poster={preview.cover || undefined} controls className="w-full rounded-lg" preload={preview.cover ? 'none' : 'metadata'} />
+                <video src={withBase(preview.url)} poster={withBase(preview.cover || undefined)} controls className="w-full rounded-lg" preload={preview.cover ? 'none' : 'metadata'} />
               )}
             </div>
             <div className="w-48 space-y-3 text-xs">
@@ -579,7 +580,7 @@ export default function AssetLibrary() {
                   </div>
                 )
               })()}
-              <Button block size="small" icon={<DownloadOutlined />} href={preview.url} target="_blank">
+              <Button block size="small" icon={<DownloadOutlined />} href={withBase(preview.url)} target="_blank">
                 下载原文件
               </Button>
             </div>

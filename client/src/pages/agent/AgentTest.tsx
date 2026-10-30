@@ -6,6 +6,7 @@ import {
   RobotOutlined, ExpandOutlined, FileTextOutlined, PictureOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from '../../utils/base'
 
 interface Message {
   id?: number
@@ -131,7 +132,7 @@ export default function AgentTest() {
     try {
       const token = localStorage.getItem('token')
       const resp = await fetch(
-        '/api/conversations/chat/stream',
+        withBase('/api/conversations/chat/stream'),
         { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: convId, message: text }), signal: controller.signal }
       )
       if (!resp.ok || !resp.body) throw new Error('会话请求失败')
@@ -260,7 +261,7 @@ export default function AgentTest() {
         {/* 顶部技能选择 */}
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
           <div className="flex items-center gap-3">
-            <img src="/images/aiAgent/agent-home-hero.png" alt="" className="h-7 w-7" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <img src={withBase('/images/aiAgent/agent-home-hero.png')} alt="" className="h-7 w-7" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
             <span className="text-sm font-medium text-gray-700">AI Agent 创作助手</span>
             <Tag color="purple" className="!text-xs">{chatModels[0]?.name || 'AI对话模型'}</Tag>
           </div>
@@ -282,7 +283,7 @@ export default function AgentTest() {
         <div className="flex-1 overflow-y-auto p-5">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center">
-              <img src="/images/aiAgent/conversation-placeholder.png" alt="" className="mb-4 h-24 w-24 opacity-60" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <img src={withBase('/images/aiAgent/conversation-placeholder.png')} alt="" className="mb-4 h-24 w-24 opacity-60" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               <h3 className="mb-2 text-lg font-medium text-gray-700">开始你的创作之旅</h3>
               <p className="mb-6 text-sm text-gray-400">输入产品信息，AI帮你生成脚本、分镜与创意</p>
               <div className="grid grid-cols-2 gap-3">
@@ -394,7 +395,7 @@ export default function AgentTest() {
         <div className="space-y-2">
           {(videoModels.length ? videoModels.slice(0, 3) : [{ name: 'MiniMax H3 (ModelGate)' }]).map((v, i) => (
             <div key={i} className="flex items-center gap-2 rounded-xl bg-gray-50 p-3">
-              <img src="/images/aiAgent/video-model.png" alt="" className="h-6 w-6" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <img src={withBase('/images/aiAgent/video-model.png')} alt="" className="h-6 w-6" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               <span className="text-[10px] text-gray-500">{v.name}</span>
             </div>
           ))}

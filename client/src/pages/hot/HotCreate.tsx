@@ -6,6 +6,7 @@ import {
   ShareAltOutlined, PlayCircleOutlined, LinkOutlined, ThunderboltOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from "../../utils/base"
 
 const PLATFORM_MAP: Record<string, { name: string; color: string }> = {
   douyin: { name: '抖音', color: '#000000' },
@@ -152,7 +153,7 @@ export default function HotCreate() {
             >
               {/* 封面 */}
               <div className="relative aspect-[9/16] max-h-72 overflow-hidden bg-gray-100">
-                <img src={item.cover} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <img src={withBase(item.cover)} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 {/* 播放按钮 */}
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
                   <PlayCircleOutlined className="text-5xl text-white/90 drop-shadow-lg" />
@@ -212,7 +213,7 @@ export default function HotCreate() {
       >
         {detail && (
           <div className="flex gap-4">
-            <video src={detail.video_url} controls className="w-64 rounded-lg" poster={detail.cover} />
+            <video src={withBase(detail.video_url)} controls className="w-64 rounded-lg" poster={withBase(detail.cover)} />
             <div className="flex-1 space-y-2 text-sm">
               <p className="text-gray-700">{detail.title}</p>
               <div className="flex flex-wrap gap-2 text-xs text-gray-400">

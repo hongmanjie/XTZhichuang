@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Tag, Tooltip } from 'antd'
 import { CloudOutlined, DisconnectOutlined, RobotOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { withBase } from '../utils/base'
 
 // ES连接 + AI引擎状态徽标
 export function ESStatusBadge() {
@@ -10,13 +11,13 @@ export function ESStatusBadge() {
   useEffect(() => {
     const check = async () => {
       try {
-        const data = await fetch('/api/es/status').then((r) => r.json())
+        const data = await fetch(withBase('/api/es/status')).then((r) => r.json())
         setEsOk(data?.data?.available === true)
       } catch {
         setEsOk(false)
       }
       try {
-        const data = await fetch('/api/ai/status').then((r) => r.json())
+        const data = await fetch(withBase('/api/ai/status')).then((r) => r.json())
         setAiEnabled(data?.data?.enabled === true)
       } catch {
         setAiEnabled(false)

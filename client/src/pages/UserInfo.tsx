@@ -3,6 +3,7 @@ import { Card, Descriptions, Avatar, Button, Form, Input, message, Tabs, Tag } f
 import { UserOutlined, EditOutlined } from '@ant-design/icons'
 import { api } from '../api/request'
 import { useUserStore } from '../stores/userStore'
+import { withBase } from "../utils/base"
 
 export default function UserInfoPage() {
   const { userInfo, setUserInfo } = useUserStore()
@@ -34,7 +35,7 @@ export default function UserInfoPage() {
 
       <Card className="!rounded-2xl">
         <div className="mb-6 flex items-center gap-4">
-          <Avatar size={72} src={userInfo.avatar} icon={<UserOutlined />} className="bg-primary" />
+          <Avatar size={72} src={withBase(userInfo.avatar)} icon={<UserOutlined />} className="bg-primary" />
           <div>
             <h2 className="text-lg font-bold text-gray-800">{userInfo.name}</h2>
             <p className="text-xs text-gray-400">{userInfo.account}</p>

@@ -5,6 +5,7 @@ import {
   LinkOutlined, CloudUploadOutlined, LoadingOutlined, AppstoreOutlined, InboxOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from "../../utils/base"
 
 // 平台映射（parseShareUrl 返回英文 key）
 const PLATFORM_NAME: Record<string, string> = { douyin: '抖音', kuaishou: '快手', bilibili: 'B站', xiaohongshu: '小红书' }
@@ -213,7 +214,7 @@ export default function HighlightClips() {
             {videoInfo ? (
               <div className="flex w-full items-center gap-3 px-4">
                 {videoInfo.cover ? (
-                  <img src={videoInfo.cover} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                  <img src={withBase(videoInfo.cover)} alt="" className="h-16 w-16 rounded-lg object-cover" />
                 ) : (
                   <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-[#1a1430]"><PlayCircleOutlined className="text-xl text-[#7d74a3]" /></div>
                 )}

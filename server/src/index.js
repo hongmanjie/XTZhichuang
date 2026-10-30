@@ -26,6 +26,17 @@ app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
+// 子路径部署:剥离 APP_BASE_PATH 前缀(如 /xtzc),使应用可挂在反向代理子路径下;
+// 同时保留根路径直连能力(nginx 剥离过前缀的请求到达时已无前缀,此处为空操作)
+const BASE_PATH = (process.env.APP_BASE_PATH || '').replace(/\/$/, '')
+if (BASE_PATH) {
+  app.use((req, res, next) => {
+    if (req.url === BASE_PATH) return res.redirect(301, BASE_PATH + '/')
+    if (req.url.startsWith(BASE_PATH + '/')) req.url = req.url.slice(BASE_PATH.length) || '/'
+    next()
+  })
+}
+
 // 静态服务：上传的文件（原站素材CDN模拟）
 app.use('/uploads', mediaAccess, express.static(UPLOAD_DIR))
 

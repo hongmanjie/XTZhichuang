@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
+  // 子路径部署:构建时通过 VITE_BASE_PATH 注入(如 /xtzc/),本地开发默认根路径
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react()],
   resolve: {
     alias: {

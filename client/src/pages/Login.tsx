@@ -5,6 +5,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { api } from '../api/request'
 import { useUserStore } from '../stores/userStore'
 import BrandLogo from '../components/BrandLogo'
+import { withBase } from '../utils/base'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -16,11 +17,11 @@ export default function Login() {
   const [nickname, setNickname] = useState('')
   const [remember, setRemember] = useState(true)
   const [loading, setLoading] = useState(false)
-  const [siteName, setSiteName] = useState('兴图智创')
+  const [siteName, setSiteName] = useState('兴图AI视频创作平台')
   const [slogan, setSlogan] = useState('电商广告视频 · AI分镜智创')
 
   useEffect(() => {
-    document.title = '兴图智创 - AIGC视频分镜AI创作平台'
+    document.title = '兴图AI视频创作平台'
     api.loginInit().then((data: any) => {
       if (data) {
         setSiteName(data.siteName || siteName)
@@ -74,7 +75,7 @@ export default function Login() {
   const submit = () => (isRegister ? handleRegister() : handleLogin())
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[url('/images/login-bg.png')] bg-cover bg-center">
+    <div className="fixed inset-0 flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: `url(${withBase('/images/login-bg.png')})` }}>
       {/* 遮罩 */}
       <div className="absolute inset-0 bg-black/20" />
 
@@ -82,7 +83,7 @@ export default function Login() {
       <div className="relative z-10 w-[400px] rounded-2xl border border-mf-border bg-[#120D20]/90 p-8 shadow-[0_0_60px_rgba(124,58,237,0.35)] backdrop-blur">
         {/* Logo与标题 */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <BrandLogo size={48} radius={12} className="shadow-[0_0_20px_rgba(139,92,246,0.5)] rounded-xl" />
+          <BrandLogo size={44} />
           <h1 className="text-2xl font-bold text-mf-text">{siteName}</h1>
           <p className="text-sm text-mf-dim">{slogan}</p>
         </div>
@@ -187,7 +188,7 @@ export default function Login() {
 
       {/* 底部版权 */}
       <div className="absolute bottom-6 left-0 right-0 text-center text-xs text-white/70">
-        © 2026 兴图智创 XingTu Studio · 电商广告视频 AI分镜智创
+        © 2026 兴图AI视频创作平台 · 电商广告视频 AI分镜智创
       </div>
     </div>
   )

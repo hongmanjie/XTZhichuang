@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Empty, Input, message, Popconfirm, Select, Spin, Tag } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, ReloadOutlined, ScissorOutlined } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from "../../utils/base"
 
 type Material = { id: number; name: string; url: string }
 type Task = { id: number; task_no: string; title: string; status: string; stage?: string; error?: string; result?: any }
@@ -94,8 +95,8 @@ export default function MixList() {
           <div className="mb-2 flex items-center justify-between text-xs text-gray-500"><span>{task.title} · {task.task_no}</span><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : 'processing'}>{task.stage || task.status}</Tag></div>
           {task.status === 'success' && task.result?.videos?.[0]?.url ? <>
             {!!task.result.warnings?.length && <p className="mb-2 text-xs leading-5 text-amber-600">{task.result.warnings.join('；')}</p>}
-            <video controls preload="metadata" src={task.result.videos[0].url} poster={task.result.videos[0].cover || undefined} className="max-h-96 w-full rounded-lg bg-black" />
-            <a className="mt-2 inline-block text-xs text-purple-600" href={task.result.videos[0].url} target="_blank" rel="noreferrer">打开成片</a>
+            <video controls preload="metadata" src={withBase(task.result.videos[0].url)} poster={withBase(task.result.videos[0].cover || undefined)} className="max-h-96 w-full rounded-lg bg-black" />
+            <a className="mt-2 inline-block text-xs text-purple-600" href={withBase(task.result.videos[0].url)} target="_blank" rel="noreferrer">打开成片</a>
           </> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}
           {task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}
           {['failed', 'reconciling'].includes(task.status) && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}
