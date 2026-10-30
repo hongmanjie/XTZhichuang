@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   兴图智创 全局暗夜紫主题（AI素材场风格）
+   ============================================================ */
+:root {
+  --mf-bg: #0a0714;
+  --mf-card: #120d20;
+  --mf-card2: #0d0918;
+  --mf-panel: #141021;
+  --mf-border: #2a2140;
+  --mf-border2: #221a38;
+  --mf-hover: #3a2f5a;
+  --mf-text: #e6e1f5;
+  --mf-sub: #9d8fd0;
+  --mf-dim: #7d74a3;
+  --mf-faint: #5b5280;
+  --mf-accent: #c4b5fd;
+  --mf-gold: #eabb5c;
+  --mf-primary: #8b5cf6;
+  --mf-fuchsia: #d946ef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--mf-bg);
+  color: var(--mf-text);
+  color-scheme: dark;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a2f5a;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a3f73;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 主色工具类 */
+.text-primary {
+  color: #8b5cf6;
+}
+.bg-primary {
+  background: #8b5cf6;
+}
+
+/* 素材场式渐变光晕文字 */
+.mf-glow-text {
+  background: linear-gradient(92deg, #a78bfa 0%, #e9d5ff 30%, #f5f3ff 50%, #c4b5fd 70%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 素材场式渐变按钮 */
+.mf-btn-gradient {
+  background: linear-gradient(90deg, #7c3aed, #d946ef);
+  color: #fff;
+  transition: all 0.2s;
+}
+.mf-btn-gradient:hover {
+  opacity: 0.9;
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.45);
+}
+
+/* ============================================================
+   浅色工具类 → 暗夜紫 全局映射
+   （让未逐个改造的页面自动获得暗色外观；新页面请直接使用 mf-* 色板）
+   ============================================================ */
+
+/* --- 背景 --- */
+.bg-white { background-color: var(--mf-card) !important; }
+.bg-\[\#f5f6fa\] { background-color: var(--mf-bg) !important; }
+.bg-gray-50 { background-color: var(--mf-card2) !important; }
+.bg-gray-100 { background-color: #1a1330 !important; }
+.hover\:bg-gray-50:hover { background-color: #1a1330 !important; }
+.hover\:bg-gray-100:hover { background-color: #1a1330 !important; }
+.bg-purple-50 { background-color: rgba(124, 58, 237, 0.14) !important; }
+.hover\:bg-purple-50:hover { background-color: rgba(124, 58, 237, 0.2) !important; }
+.bg-green-50 { background-color: rgba(34, 197, 94, 0.1) !important; }
+.bg-red-50 { background-color: rgba(239, 68, 68, 0.1) !important; }
+.bg-orange-50 { background-color: rgba(249, 115, 22, 0.1) !important; }
+.bg-blue-50 { background-color: rgba(59, 130, 246, 0.1) !important; }
+.bg-yellow-50 { background-color: rgba(234, 179, 8, 0.1) !important; }
+
+/* --- 文本 --- */
+.text-gray-800, .text-gray-900 { color: var(--mf-text) !important; }
+.text-gray-700 { color: #d9d2f2 !important; }
+.text-gray-600 { color: var(--mf-sub) !important; }
+.text-gray-500 { color: var(--mf-dim) !important; }
+.text-gray-400 { color: var(--mf-faint) !important; }
+.text-gray-300 { color: #4a3f73 !important; }
+.text-gray-100, .text-gray-200 { color: #2e2450 !important; }
+
+/* --- 边框 --- */
+.border-gray-100 { border-color: var(--mf-border2) !important; }
+.border-gray-200 { border-color: var(--mf-border) !important; }
+.border-gray-300 { border-color: var(--mf-hover) !important; }
+.divide-gray-100 > * + * { border-color: var(--mf-border2) !important; }
+
+/* --- 阴影柔化（暗色下减弱） --- */
+.shadow-sm { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important; }
+.shadow-md { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important; }
+.shadow-lg { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45) !important; }
+
+/* ============================================================
+   Ant Design 组件暗色细节补充（darkAlgorithm 之外的微调）
+   ============================================================ */
+
+/* 表格 */
+.ant-table { background: transparent !important; }
+.ant-table-thead > tr > th { background: var(--mf-card2) !important; border-color: var(--mf-border2) !important; }
+.ant-table-tbody > tr > td { border-color: var(--mf-border2) !important; }
+.ant-table-tbody > tr:hover > td { background: rgba(124, 58, 237, 0.08) !important; }
+
+/* 卡片 */
+.ant-card { border-color: var(--mf-border2) !important; }
+.ant-card-head { border-color: var(--mf-border2) !important; }
+
+/* 进度条轨道 */
+.ant-progress-inner { background-color: #241a44 !important; }
+
+/* 空状态 */
+.ant-empty-description { color: var(--mf-dim) !important; }
+
+/* 分割线 */
+.ant-divider { border-color: var(--mf-border2) !important; }
+
+/* 统计数值 */
+.ant-statistic-title { color: var(--mf-dim) !important; }
+.ant-statistic-content { color: var(--mf-text) !important; }
+
+/* 描述列表/表单label */
+.ant-form-item-label > label { color: var(--mf-sub) !important; }
+
+/* 图片占位 */
+.ant-image-img-placeholder { background: #1a1330 !important; }

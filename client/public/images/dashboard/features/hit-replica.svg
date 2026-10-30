@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A1330"/><stop offset="1" stop-color="#0A0714"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#F97316"/><stop offset="1" stop-color="#F43F5E"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#2A2140" stroke-width="0.5" opacity="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#grid)"/>
+  <circle cx="255" cy="45" r="70" fill="#8B5CF6" opacity="0.14"/>
+  <circle cx="60" cy="140" r="55" fill="#D946EF" opacity="0.10"/>
+
+  <!-- 原始视频帧 -->
+  <g transform="rotate(-8 110 95)">
+    <rect x="60" y="55" width="100" height="80" rx="10" fill="#120D20" stroke="#3A2F5A" stroke-width="1.5"/>
+    <rect x="70" y="65" width="80" height="44" rx="6" fill="#221A38"/>
+    <path d="M103 80l20 11-20 11z" fill="#7D74A3"/>
+    <rect x="70" y="115" width="52" height="5" rx="2.5" fill="#2A2140"/>
+    <rect x="70" y="124" width="34" height="5" rx="2.5" fill="#2A2140"/>
+  </g>
+
+  <!-- 复刻箭头 -->
+  <path d="M168 92q22-14 44 0" fill="none" stroke="url(#ac)" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M208 84l8 8-11 3z" fill="#D946EF" filter="url(#glow)"/>
+
+  <!-- 复刻成品帧 -->
+  <g transform="rotate(6 245 90)" filter="url(#glow)">
+    <rect x="198" y="50" width="100" height="80" rx="10" fill="#1A1330" stroke="url(#ac)" stroke-width="2"/>
+    <rect x="208" y="60" width="80" height="44" rx="6" fill="url(#ac)" opacity="0.35"/>
+    <path d="M241 75l20 11-20 11z" fill="#E6E1F5"/>
+    <rect x="208" y="110" width="52" height="5" rx="2.5" fill="#3A2F5A"/>
+    <rect x="208" y="119" width="34" height="5" rx="2.5" fill="#3A2F5A"/>
+  </g>
+
+  <!-- 火焰 -->
+  <g filter="url(#glow)">
+    <path d="M44 60c-6 10-8 16-8 22a14 14 0 0028 0c0-5-2-9-5-13-1 3-3 5-5 5 1-6-2-12-7-16-1 4-2 6-3 2z" fill="url(#fire)"/>
+    <circle cx="50" cy="82" r="4" fill="#FDE68A" opacity="0.9"/>
+  </g>
+  <text x="14" y="166" font-size="9" fill="#5B5280" font-family="sans-serif" letter-spacing="2">HOT REPLICA</text>
+</svg>

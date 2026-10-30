@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A1330"/><stop offset="1" stop-color="#0A0714"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C4B5FD" stop-opacity="0.55"/><stop offset="1" stop-color="#C4B5FD" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#2A2140" stroke-width="0.5" opacity="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#grid)"/>
+  <circle cx="160" cy="70" r="80" fill="#8B5CF6" opacity="0.12"/>
+
+  <!-- 传送带 -->
+  <rect x="30" y="128" width="260" height="8" rx="4" fill="#221A38" stroke="#3A2F5A"/>
+  <circle cx="60" cy="142" r="5" fill="#3A2F5A"/><circle cx="120" cy="142" r="5" fill="#3A2F5A"/>
+  <circle cx="180" cy="142" r="5" fill="#3A2F5A"/><circle cx="240" cy="142" r="5" fill="#3A2F5A"/>
+
+  <!-- 产品盒（输入） -->
+  <g>
+    <rect x="46" y="92" width="44" height="36" rx="6" fill="#120D20" stroke="#3A2F5A" stroke-width="1.5"/>
+    <circle cx="68" cy="104" r="8" fill="#2A2140"/>
+    <rect x="56" y="116" width="24" height="4" rx="2.5" fill="#2A2140"/>
+  </g>
+
+  <!-- 魔法光束加工区 -->
+  <path d="M130 128L150 40h20l20 88z" fill="url(#beam)"/>
+  <g filter="url(#glow)">
+    <path d="M160 52l3.5 8 8 3.5-8 3.5-3.5 8-3.5-8-8-3.5 8-3.5z" fill="#EABB5C"/>
+    <circle cx="136" cy="86" r="2.5" fill="#C4B5FD"/>
+    <circle cx="186" cy="70" r="2.5" fill="#D946EF"/>
+    <circle cx="172" cy="98" r="2" fill="#EABB5C"/>
+    <circle cx="146" cy="64" r="2" fill="#8B5CF6"/>
+  </g>
+
+  <!-- 产出视频卡（输出） -->
+  <g filter="url(#glow)">
+    <rect x="218" y="78" width="64" height="50" rx="8" fill="#1A1330" stroke="url(#ac)" stroke-width="2"/>
+    <path d="M243 92l20 11-20 11z" fill="#E6E1F5"/>
+  </g>
+  <path d="M94 110h28M126 110h20" stroke="#3A2F5A" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/>
+
+  <text x="14" y="166" font-size="9" fill="#5B5280" font-family="sans-serif" letter-spacing="2">DREAM FACTORY</text>
+</svg>

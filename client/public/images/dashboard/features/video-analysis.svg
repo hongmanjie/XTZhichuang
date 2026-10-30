@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A1330"/><stop offset="1" stop-color="#0A0714"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+    <linearGradient id="scan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity="0"/><stop offset="0.5" stop-color="#22D3EE" stop-opacity="0.8"/><stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#2A2140" stroke-width="0.5" opacity="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#grid)"/>
+  <circle cx="120" cy="85" r="75" fill="#8B5CF6" opacity="0.12"/>
+
+  <!-- 视频帧 -->
+  <g filter="url(#glow)">
+    <rect x="52" y="42" width="130" height="96" rx="12" fill="#120D20" stroke="url(#ac)" stroke-width="2"/>
+    <rect x="62" y="52" width="110" height="62" rx="8" fill="#221A38"/>
+    <path d="M108 70l24 14-24 14z" fill="#7D74A3"/>
+    <!-- 扫描线 -->
+    <rect x="62" y="76" width="110" height="10" fill="url(#scan)"/>
+  </g>
+
+  <!-- 识别框与数据点 -->
+  <g fill="none" stroke="#22D3EE" stroke-width="1.5" filter="url(#glow)">
+    <path d="M84 66h14M84 66v14M150 66h-14M150 66v14M84 104v-14M84 104h14M150 104v-14M150 104h-14" opacity="0.9"/>
+  </g>
+  <g fill="#22D3EE">
+    <circle cx="98" cy="88" r="2"/><circle cx="118" cy="80" r="2"/><circle cx="132" cy="94" r="2"/>
+  </g>
+
+  <!-- 右侧解析数据面板 -->
+  <g>
+    <rect x="200" y="46" width="86" height="88" rx="10" fill="#120D20" stroke="#3A2F5A"/>
+    <rect x="210" y="56" width="40" height="6" rx="3" fill="#8B5CF6"/>
+    <rect x="210" y="70" width="66" height="4" rx="2" fill="#2A2140"/>
+    <rect x="210" y="79" width="52" height="4" rx="2" fill="#2A2140"/>
+    <rect x="210" y="88" width="60" height="4" rx="2" fill="#2A2140"/>
+    <rect x="210" y="104" width="14" height="20" rx="3" fill="#8B5CF6" opacity="0.8"/>
+    <rect x="228" y="96" width="14" height="28" rx="3" fill="#D946EF" opacity="0.8"/>
+    <rect x="246" y="110" width="14" height="14" rx="3" fill="#C4B5FD" opacity="0.8"/>
+    <rect x="264" y="100" width="12" height="24" rx="3" fill="#22D3EE" opacity="0.7"/>
+  </g>
+
+  <text x="14" y="166" font-size="9" fill="#5B5280" font-family="sans-serif" letter-spacing="2">AI ANALYSIS</text>
+</svg>

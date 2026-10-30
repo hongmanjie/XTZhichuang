@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_60" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#450A0A"/><stop offset="0.55" stop-color="#B91C1C"/><stop offset="1" stop-color="#DC2626"/></linearGradient>
+  <radialGradient id="gl_61" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#F87171" stop-opacity="0.55"/><stop offset="1" stop-color="#F87171" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_62" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#EF4444"/></linearGradient>
+  <pattern id="dot_63" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#fff" opacity="0.1"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_60)"/>
+<rect width="360" height="640" fill="url(#dot_63)"/>
+<line x1="254.8" y1="300.0" x2="520.0" y2="300.0" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="247.4" y1="332.5" x2="486.3" y2="447.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="226.6" y1="358.5" x2="392.0" y2="565.8" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="196.6" y1="372.9" x2="255.7" y2="631.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="163.4" y1="372.9" x2="104.3" y2="631.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="133.4" y1="358.5" x2="-32.0" y2="565.8" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="112.6" y1="332.5" x2="-126.3" y2="447.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="105.2" y1="300.0" x2="-160.0" y2="300.0" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="112.6" y1="267.5" x2="-126.3" y2="152.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="133.4" y1="241.5" x2="-32.0" y2="34.2" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="163.4" y1="227.1" x2="104.3" y2="-31.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="196.6" y1="227.1" x2="255.7" y2="-31.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="226.6" y1="241.5" x2="392.0" y2="34.2" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/><line x1="247.4" y1="267.5" x2="486.3" y2="152.5" stroke="#FCA5A5" stroke-width="12" opacity="0.1"/>
+<circle cx="180" cy="430" r="190" fill="url(#gl_61)"/>
+<circle cx="58" cy="118" r="16" fill="#F59E0B" stroke="#FDE68A" stroke-width="3"/><text x="58" y="124.08" font-size="16" font-weight="900" fill="#FDE68A" text-anchor="middle" font-family="PingFang SC,Microsoft YaHei,sans-serif">¥</text><path d="M304 110 Q305.8 118.2 314 120 Q305.8 121.8 304 130 Q302.2 121.8 294 120 Q302.2 118.2 304 110Z" fill="#FDE68A" opacity="0.9"/><path d="M300 192 Q301.44 198.56 308 200 Q301.44 201.44 300 208 Q298.56 201.44 292 200 Q298.56 198.56 300 192Z" fill="#FCA5A5" opacity="0.8"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.35)" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">双11预售</text>
+<text x="182" y="162" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#000" opacity="0.25" text-anchor="middle">好礼就位</text>
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FFF7ED" text-anchor="middle" opacity="1">好礼就位</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">优惠拉满</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="rgba(255,255,255,.72)" text-anchor="middle" opacity="1">预售付定 · 尾款立减 50</text>
+<defs><linearGradient id="pj_58" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#DC2626"/><stop offset="0.5" stop-color="#FCA5A5"/><stop offset="1" stop-color="#DC2626"/></linearGradient></defs>
+  <ellipse cx="150" cy="498" rx="66" ry="10" fill="#000" opacity="0.22"/>
+  <rect x="95" y="421.8" width="110" height="68.2" rx="19.8" fill="url(#pj_58)"/>
+  <rect x="91" y="405.8" width="118" height="22" rx="10" fill="#E8C877"/>
+  <rect x="108.2" y="429.8" width="13.2" height="49.104" rx="6" fill="#fff" opacity="0.4"/>
+  <text x="150" y="461.356" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="900" letter-spacing="3" fill="#6D28D9" text-anchor="middle" opacity="1">修护霜</text><defs><linearGradient id="pg_59" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FDE68A"/><stop offset="1" stop-color="#D4A017"/></linearGradient></defs>
+  <ellipse cx="268" cy="504" rx="57.04" ry="10" fill="#000" opacity="0.22"/>
+  <rect x="222" y="438.96" width="92" height="57.04" rx="8" fill="url(#pg_59)"/>
+  <rect x="214" y="424.23999999999995" width="108" height="14.72" rx="7" fill="#D4A017"/>
+  <rect x="257" y="424.23999999999995" width="22" height="71.76" fill="#B91C1C"/>
+  <ellipse cx="252" cy="416.23999999999995" rx="17" ry="10" fill="#B91C1C" transform="rotate(-24 252 416.23999999999995)"/>
+  <ellipse cx="284" cy="416.23999999999995" rx="17" ry="10" fill="#B91C1C" transform="rotate(24 284 416.23999999999995)"/>
+  <circle cx="268" cy="418.23999999999995" r="7" fill="#B91C1C"/>
+<circle cx="48" cy="510" r="13" fill="#F59E0B" stroke="#FDE68A" stroke-width="3"/><text x="48" y="514.94" font-size="13" font-weight="900" fill="#FDE68A" text-anchor="middle" font-family="PingFang SC,Microsoft YaHei,sans-serif">¥</text><ellipse cx="312" cy="460" rx="9" ry="5" fill="#FECACA" opacity="0.85" transform="rotate(24 312 460)"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(0,0,0,.3)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="rgba(255,255,255,.7)" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#FDE68A">¥109</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_62)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">付定金</text>
+</svg>

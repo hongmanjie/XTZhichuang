@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_25" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#FDF2F8"/><stop offset="0.55" stop-color="#FBCFE8"/><stop offset="1" stop-color="#F9A8D4"/></linearGradient>
+  <radialGradient id="gl_26" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff" stop-opacity="0.55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_27" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#EC4899"/><stop offset="1" stop-color="#F472B6"/></linearGradient>
+  <pattern id="dot_28" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#9D174D" opacity="0.14"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_25)"/>
+<rect width="360" height="640" fill="url(#dot_28)"/>
+
+<circle cx="180" cy="430" r="190" fill="url(#gl_26)"/>
+<ellipse cx="58" cy="120" rx="9" ry="5" fill="#F472B6" opacity="0.85" transform="rotate(-24 58 120)"/><ellipse cx="304" cy="110" rx="9" ry="5" fill="#F9A8D4" opacity="0.85" transform="rotate(30 304 110)"/><path d="M310 181 Q311.62 188.38 319 190 Q311.62 191.62 310 199 Q308.38 191.62 301 190 Q308.38 188.38 310 181Z" fill="#EC4899" opacity="0.6"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.5)" stroke="#9D174D" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#9D174D" text-anchor="middle" opacity="1">治愈好物</text>
+
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#9D174D" text-anchor="middle" opacity="1">软萌来袭</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#9D174D" text-anchor="middle" opacity="1">温暖整个冬天</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="#BE5B8C" text-anchor="middle" opacity="1">云朵般触感 · 抱回本店爆款</text>
+<defs><radialGradient id="pl_24" cx="0.4" cy="0.35" r="0.9"><stop offset="0" stop-color="#FCE7F3"/><stop offset="1" stop-color="#F472B6"/></radialGradient></defs>
+  <ellipse cx="180" cy="508" rx="96.60000000000001" ry="10" fill="#000" opacity="0.12"/>
+  <circle cx="129.4" cy="382.24" r="29.44" fill="url(#pl_24)"/>
+  <circle cx="230.6" cy="382.24" r="29.44" fill="url(#pl_24)"/>
+  <circle cx="180" cy="433.76" r="92" fill="url(#pl_24)"/>
+  <circle cx="152.4" cy="424.56" r="6.44" fill="#3b2f2f"/>
+  <circle cx="207.6" cy="424.56" r="6.44" fill="#3b2f2f"/>
+  <path d="M168.96 444.8 Q180 454 191.04 444.8" stroke="#3b2f2f" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <ellipse cx="132.16" cy="444.8" rx="12.88" ry="8.28" fill="#FB7185" opacity="0.55"/>
+  <ellipse cx="227.84" cy="444.8" rx="12.88" ry="8.28" fill="#FB7185" opacity="0.55"/>
+<ellipse cx="72" cy="470" rx="9" ry="5" fill="#F472B6" opacity="0.85" transform="rotate(40 72 470)"/><ellipse cx="296" cy="520" rx="9" ry="5" fill="#FBCFE8" opacity="0.85" transform="rotate(-30 296 520)"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(255,255,255,.65)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="#BE5B8C" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#E11D48">¥79</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_27)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">抱回家</text>
+</svg>

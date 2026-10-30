@@ -1,0 +1,13 @@
+{
+  "name": "yimetai",
+  "version": "1.0.0",
+  "description": "对 https://merchant.yimetai.com/dashboard 的前后端复刻。AI模型接口以 Mock 形式实现，检索使用本地 Docker Desktop 中的 Elasticsearch 构建。",
+  "main": "index.js",
+  "scripts": {
+    "deploy:107": "node tools/deploy-107.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

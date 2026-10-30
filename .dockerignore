@@ -1,0 +1,12 @@
+# 构建上下文忽略项（避免上传超大的宿主 node_modules 等）
+**/node_modules
+**/.venv-cutout
+**/.git
+**/.env
+**/.env.*
+server/data
+server/uploads
+client/dist
+*.log
+analysis
+.wbapp_*

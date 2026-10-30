@@ -1,0 +1,48 @@
+name: xtzc-zsc-dev
+services:
+  app:
+    image: ${DEV_APP_IMAGE:-xtzc-dev-base:local}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      APP_BASE_PATH: /xtzc
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.dev}
+      MODELGATE_BASE: ${MODELGATE_BASE:?Set MODELGATE_BASE in .env.dev}
+      MODELGATE_API_KEY: ${MODELGATE_API_KEY:?Set MODELGATE_API_KEY in .env.dev}
+      MODELGATE_ENABLED: "true"
+      AI_REAL_ENABLED: "true"
+      AI_TASK_CONCURRENCY: ${AI_TASK_CONCURRENCY:-1}
+      TTS_TASK_CONCURRENCY: ${TTS_TASK_CONCURRENCY:-1}
+      INDEX_TTS_BASE_URL: ${INDEX_TTS_BASE_URL:-}
+      INDEX_TTS_SYNTHESIS_PROVIDER: ${INDEX_TTS_SYNTHESIS_PROVIDER:-modelgate}
+      SUPER_RES_POINTS_PER_SECOND: ${SUPER_RES_POINTS_PER_SECOND:-20}
+      SUBTITLE_TRANSCRIBE_POINTS: ${SUBTITLE_TRANSCRIBE_POINTS:-10}
+      ES_NODE: http://elasticsearch:9200
+    ports:
+      - "${DEV_BIND_HOST:-127.0.0.1}:${DEV_PORT:-3011}:3001"
+    volumes:
+      - ./server/src:/app/server/src:ro
+      - ./client/dist:/app/client/dist:ro
+      - app-data:/app/server/data
+      - app-uploads:/app/server/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+  elasticsearch:
+    image: ${DEV_ES_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.0}
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.ml.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    mem_limit: 1g
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+volumes:
+  app-data:
+  app-uploads:
+  es-data:

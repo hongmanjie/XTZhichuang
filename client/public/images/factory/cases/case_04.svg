@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_20" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#0F172A"/><stop offset="0.55" stop-color="#1E3A8A"/><stop offset="1" stop-color="#1D4ED8"/></linearGradient>
+  <radialGradient id="gl_21" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#60A5FA" stop-opacity="0.55"/><stop offset="1" stop-color="#60A5FA" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_22" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3B82F6"/><stop offset="1" stop-color="#06B6D4"/></linearGradient>
+  <pattern id="dot_23" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#fff" opacity="0.1"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_20)"/>
+<rect width="360" height="640" fill="url(#dot_23)"/>
+
+<circle cx="180" cy="430" r="190" fill="url(#gl_21)"/>
+<path d="M64 108 Q65.8 116.2 74 118 Q65.8 119.8 64 128 Q62.2 119.8 54 118 Q62.2 116.2 64 108Z" fill="#93C5FD" opacity="0.9"/><path d="M300 122 Q301.44 128.56 308 130 Q301.44 131.44 300 138 Q298.56 131.44 292 130 Q298.56 128.56 300 122Z" fill="#FDE68A" opacity="0.85"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.35)" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">匠心臻品</text>
+<text x="182" y="162" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#000" opacity="0.25" text-anchor="middle">匠心臻品</text>
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FFF7ED" text-anchor="middle" opacity="1">匠心臻品</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#FDE68A" text-anchor="middle" opacity="1">冰爽一夏</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="rgba(255,255,255,.72)" text-anchor="middle" opacity="1">0 糖 0 脂 · 畅饮无负担</text>
+<defs><linearGradient id="pc_18" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1D4ED8"/><stop offset="0.45" stop-color="#60A5FA"/><stop offset="1" stop-color="#1D4ED8"/></linearGradient></defs>
+  <ellipse cx="152" cy="502" rx="59.519999999999996" ry="10" fill="#000" opacity="0.22"/>
+  <rect x="104" y="318" width="96" height="176" fill="url(#pc_18)"/>
+  <ellipse cx="152" cy="318" rx="48" ry="11.52" fill="#d9dde3"/>
+  <ellipse cx="152" cy="318" rx="32.64" ry="7.68" fill="#aab"/>
+  <ellipse cx="152" cy="494" rx="48" ry="11.52" fill="#1D4ED8"/>
+  <rect x="117.44" y="330" width="12.48" height="147.84" rx="5.76" fill="#fff" opacity="0.4"/>
+  <text x="152" y="409.52" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="20" font-weight="900" letter-spacing="4" fill="#fff" text-anchor="middle" opacity="1">气泡水</text><defs><linearGradient id="pc_19" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3B82F6"/><stop offset="0.45" stop-color="#93C5FD"/><stop offset="1" stop-color="#3B82F6"/></linearGradient></defs>
+  <ellipse cx="238" cy="508" rx="45.88" ry="10" fill="#000" opacity="0.22"/>
+  <rect x="201" y="362" width="74" height="138" fill="url(#pc_19)"/>
+  <ellipse cx="238" cy="362" rx="37" ry="8.879999999999999" fill="#d9dde3"/>
+  <ellipse cx="238" cy="362" rx="25.16" ry="5.92" fill="#aab"/>
+  <ellipse cx="238" cy="500" rx="37" ry="8.879999999999999" fill="#3B82F6"/>
+  <rect x="211.36" y="374" width="9.620000000000001" height="115.92" rx="4.4399999999999995" fill="#fff" opacity="0.4"/>
+  <text x="238" y="433.76" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="20" font-weight="900" letter-spacing="4" fill="#fff" text-anchor="middle" opacity="1">轻盈</text>
+<path d="M66 492 Q67.44 498.56 74 500 Q67.44 501.44 66 508 Q64.56 501.44 58 500 Q64.56 498.56 66 492Z" fill="#93C5FD" opacity="0.9"/><path d="M310 461 Q311.62 468.38 319 470 Q311.62 471.62 310 479 Q308.38 471.62 301 470 Q308.38 468.38 310 461Z" fill="#fff" opacity="0.7"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(0,0,0,.3)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="rgba(255,255,255,.7)" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#FDE68A">¥59</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_22)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">马上囤货</text>
+</svg>

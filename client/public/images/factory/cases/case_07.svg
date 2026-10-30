@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 360 640">
+<defs>
+  <linearGradient id="bg_35" x1="0" y1="0" x2="0.7" y2="1"><stop offset="0" stop-color="#FFF7ED"/><stop offset="0.55" stop-color="#FDBA74"/><stop offset="1" stop-color="#FB923C"/></linearGradient>
+  <radialGradient id="gl_36" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff" stop-opacity="0.55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  <linearGradient id="cta_37" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#F97316"/><stop offset="1" stop-color="#FB923C"/></linearGradient>
+  <pattern id="dot_38" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="2" fill="#9A3412" opacity="0.14"/></pattern>
+</defs>
+<rect width="360" height="640" fill="url(#bg_35)"/>
+<rect width="360" height="640" fill="url(#dot_38)"/>
+
+<circle cx="180" cy="430" r="190" fill="url(#gl_36)"/>
+<ellipse cx="58" cy="116" rx="9" ry="5" fill="#FED7AA" opacity="0.85" transform="rotate(-20 58 116)"/><ellipse cx="306" cy="120" rx="9" ry="5" fill="#FFEDD5" opacity="0.85" transform="rotate(36 306 120)"/>
+<rect x="110" y="52" width="140" height="30" rx="15" fill="rgba(255,255,255,.5)" stroke="#9A3412" stroke-opacity="0.5"/>
+<text x="180" y="73" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="14" font-weight="800" letter-spacing="4" fill="#9A3412" text-anchor="middle" opacity="1">鲜切现萃</text>
+
+<text x="180" y="160" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#9A3412" text-anchor="middle" opacity="1">鲜切果萃</text>
+<text x="180" y="216" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="46" font-weight="900" letter-spacing="4" fill="#9A3412" text-anchor="middle" opacity="1">一口爆汁</text>
+<text x="180" y="252" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="#C2623B" text-anchor="middle" opacity="1">整颗鲜橙冷压 · 0 添加</text>
+<circle cx="150" cy="430" r="92" fill="#EA580C"/><circle cx="150" cy="430" r="79.12" fill="#FDBA74"/><line x1="150" y1="430" x2="225.44" y2="430" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="203.34413557271313" y2="483.3441355727131" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="150" y2="505.44" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="96.65586442728686" y2="483.3441355727131" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="74.56" y2="430" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="96.65586442728684" y2="376.6558644272869" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="150" y2="354.56" stroke="#EA580C" stroke-width="3" opacity="0.85"/><line x1="150" y1="430" x2="203.34413557271313" y2="376.6558644272868" stroke="#EA580C" stroke-width="3" opacity="0.85"/><circle cx="150" cy="430" r="9.200000000000001" fill="#EA580C"/><circle cx="266" cy="492" r="46" fill="#F97316"/><circle cx="266" cy="492" r="39.56" fill="#FED7AA"/><line x1="266" y1="492" x2="303.72" y2="492" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="292.6720677863566" y2="518.6720677863566" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="266" y2="529.72" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="239.32793221364344" y2="518.6720677863566" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="228.28" y2="492" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="239.3279322136434" y2="465.3279322136434" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="266" y2="454.28" stroke="#F97316" stroke-width="3" opacity="0.85"/><line x1="266" y1="492" x2="292.6720677863566" y2="465.3279322136434" stroke="#F97316" stroke-width="3" opacity="0.85"/><circle cx="266" cy="492" r="4.6000000000000005" fill="#F97316"/><defs><linearGradient id="pc_34" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#EA580C"/><stop offset="0.45" stop-color="#FDBA74"/><stop offset="1" stop-color="#EA580C"/></linearGradient></defs>
+  <ellipse cx="282" cy="428" rx="34.72" ry="10" fill="#000" opacity="0.22"/>
+  <rect x="254" y="316" width="56" height="104" fill="url(#pc_34)"/>
+  <ellipse cx="282" cy="316" rx="28" ry="6.72" fill="#d9dde3"/>
+  <ellipse cx="282" cy="316" rx="19.040000000000003" ry="4.48" fill="#aab"/>
+  <ellipse cx="282" cy="420" rx="28" ry="6.72" fill="#EA580C"/>
+  <rect x="261.84" y="328" width="7.28" height="87.36" rx="3.36" fill="#fff" opacity="0.4"/>
+  <text x="282" y="370.08" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="20" font-weight="900" letter-spacing="4" fill="#fff" text-anchor="middle" opacity="1">橙汁</text>
+<ellipse cx="80" cy="510" rx="9" ry="5" fill="#FB923C" opacity="0.85" transform="rotate(20 80 510)"/><path d="M312 462 Q313.44 468.56 320 470 Q313.44 471.44 312 478 Q310.56 471.44 304 470 Q310.56 468.56 312 462Z" fill="#EA580C" opacity="0.5"/>
+<rect x="30" y="556" width="300" height="56" rx="28" fill="rgba(255,255,255,.65)"/>
+<text x="64" y="592" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="13" font-weight="600" letter-spacing="1" fill="#C2623B" text-anchor="start" opacity="1">到手价</text>
+<text x="118" y="596" font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="30" font-weight="900" fill="#EA580C">¥39</text>
+<rect x="196" y="564" width="126" height="40" rx="20" fill="url(#cta_37)"/>
+<text x="259" y="590" font-family="PingFang SC,Microsoft YaHei,Source Han Sans SC,sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#fff" text-anchor="middle" opacity="1">尝鲜果</text>
+</svg>
