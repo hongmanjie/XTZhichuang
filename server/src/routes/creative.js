@@ -8,7 +8,7 @@ import path from 'path'
 import fs from 'fs'
 import { teamCond } from '../utils/teamScope.js'
 import { createTask, listTasks } from '../services/aiEngine.js'
-import { inspectSuperResolutionInput, SUPER_RES_MAX_BYTES, SUPER_RES_MAX_SECONDS, SUPER_RES_MAX_LONG_SIDE, SUPER_RES_POINTS_PER_SECOND } from '../services/superResolution.js'
+import { inspectSuperResolutionInput, superResolutionProvider, superResolutionSettings, SUPER_RES_POINTS_PER_SECOND } from '../services/superResolution.js'
 import { localMediaPath } from '../services/mediaTools.js'
 
 const router = express.Router()
@@ -203,18 +203,16 @@ router.post('/three/second/task/delete', authRequired, (req, res) => {
 
 // ============ 高清视频修复 ============
 router.get('/super/resolution/init/info/new', authRequired, (req, res) => {
-  res.json(success({
-    model: 'SeedVR2-3B', maxBytes: SUPER_RES_MAX_BYTES, maxSeconds: SUPER_RES_MAX_SECONDS,
-    maxLongSide: SUPER_RES_MAX_LONG_SIDE, pointsPerSecond: SUPER_RES_POINTS_PER_SECOND,
-  }))
+  try { res.json(success(superResolutionSettings())) }
+  catch (error) { res.json(fail(error.message, 503)) }
 })
 
-async function superResolutionInput(userId, sourceUrl) {
+async function superResolutionInput(userId, sourceUrl, provider = superResolutionProvider()) {
   if (typeof sourceUrl !== 'string') throw new Error('请选择视频')
   const scope = teamCond(userId)
   const material = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'video' AND ${scope.clause}`).get(sourceUrl, ...scope.args)
   if (!material) throw new Error('视频不存在或无权使用')
-  return inspectSuperResolutionInput(sourceUrl)
+  return inspectSuperResolutionInput(sourceUrl, { provider })
 }
 
 router.post('/super/resolution/estimate', authRequired, asyncHandler(async (req, res) => {
@@ -229,9 +227,10 @@ router.post('/super/resolution/create/new', authRequired, asyncHandler(async (re
   const { name, sourceUrl, mode = 'standard' } = req.body
   if (mode !== 'standard') return res.json(fail('当前网关只支持已验证的默认增强模式', 400))
   try {
-    const info = await superResolutionInput(req.user.id, sourceUrl)
+    const provider = superResolutionProvider()
+    const info = await superResolutionInput(req.user.id, sourceUrl, provider)
     const cost = Math.ceil(info.duration) * SUPER_RES_POINTS_PER_SECOND
-    const task = createTask(req.user.id, 'superRes', { videoUrl: sourceUrl, title: String(name || '视频画质增强').trim().slice(0, 80) || '视频画质增强' }, cost)
+    const task = createTask(req.user.id, 'superRes', { videoUrl: sourceUrl, provider, title: String(name || '视频画质增强').trim().slice(0, 80) || '视频画质增强' }, cost)
     res.json(success(task, '增强任务已加入队列'))
   } catch (error) { res.json(fail(error.message, 400)) }
 }))

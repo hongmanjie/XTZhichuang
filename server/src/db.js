@@ -618,6 +618,20 @@ db.exec(`CREATE TABLE IF NOT EXISTS long_video_segments (
 )`)
 ensureColumn('long_video_segments', 'soundscape', 'soundscape TEXT')
 ensureColumn('long_video_segments', 'music', 'music TEXT')
+db.exec(`CREATE TABLE IF NOT EXISTS super_res_segments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  start_frame INTEGER NOT NULL,
+  frame_count INTEGER NOT NULL,
+  drop_prefix INTEGER NOT NULL,
+  fps TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  provider_task_id TEXT,
+  input_url TEXT,
+  result_url TEXT,
+  UNIQUE(task_id, position)
+)`)
 db.exec(`CREATE TABLE IF NOT EXISTS voice_profiles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id INTEGER NOT NULL REFERENCES users(id),

@@ -5,7 +5,7 @@ import { api } from '../../api/request'
 import { withBase } from '../../utils/base'
 
 type Material = { id: number; name: string; url: string }
-type Settings = { model: string; maxBytes: number; maxSeconds: number; maxLongSide: number; pointsPerSecond: number }
+type Settings = { model: string; provider: 'modelgate' | 'direct'; maxBytes: number; maxSeconds: number; maxLongSide: number; targetLabel: string; pointsPerSecond: number }
 type Estimate = { duration: number; width: number; height: number; hasAudio: boolean; points: number; sourceUrl: string }
 type Task = { id: number; task_no: string; status: string; stage?: string; error?: string; result?: any }
 
@@ -44,7 +44,7 @@ export default function HdVideo() {
   const upload = async (file?: File) => {
     if (!file) return
     if (!file.name.toLowerCase().endsWith('.mp4')) return message.warning('请选择 MP4 视频')
-    if (file.size > (settings?.maxBytes || 10 * 1024 * 1024)) return message.warning('视频不能超过 10 MB')
+    if (file.size > (settings?.maxBytes || 10 * 1024 * 1024)) return message.warning(`视频不能超过 ${Math.round((settings?.maxBytes || 10 * 1024 * 1024) / 1024 / 1024)} MB`)
     setUploading(true)
     try {
       const form = new FormData()
@@ -80,7 +80,7 @@ export default function HdVideo() {
               <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 text-sm hover:border-purple-400"><input type="file" hidden accept="video/mp4,.mp4" disabled={uploading} onChange={(event) => { upload(event.target.files?.[0]); event.target.value = '' }} />{uploading ? '上传中…' : '上传视频'}</label>
             </div>
             {sourceUrl && <video key={sourceUrl} controls className="mt-3 max-h-60 rounded-lg bg-black" src={withBase(sourceUrl)} />}
-            <p className="mt-2 text-xs leading-5 text-gray-500">支持 MP4、10 MB 以内、最长 10 秒、长边小于 720 像素。目前网关输出约 720 像素长边，已超过该尺寸的视频暂不能使用此功能。</p>
+            <p className="mt-2 text-xs leading-5 text-gray-500">支持 MP4、{settings ? Math.round(settings.maxBytes / 1024 / 1024) : '—'} MB 以内、最长 {settings?.maxSeconds ?? '—'} 秒。{settings?.provider === 'direct' ? '模型按画幅增强至 1080P 目标框，已达到目标尺寸的视频不能继续增强。为适配共享显存会逐段增强，速度较慢，接缝处可能闪烁，请检查结果。' : '当前网关输出约 720 像素长边，已达到该尺寸的视频不能增强。'}</p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium">2. 确认后生成</label>

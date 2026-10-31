@@ -16,6 +16,8 @@ import { generateStudio } from './studio.js'
 import { prepareReferenceVideo } from './replica.js'
 import { concatenateVideos, localMediaPath, probeMedia } from './mediaTools.js'
 import { enhanceVideo } from './superResolution.js'
+import { isSeedVRDirectId } from './seedvrDirect.js'
+import { cleanupSuperResolutionSegments } from './superResolutionSegments.js'
 import { transcribeSubtitles } from './subtitleTranscription.js'
 import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
 
@@ -198,7 +200,19 @@ function claimNextTask() {
     const speechAvailable = Number((active.speech || 0) < TTS_TASK_CONCURRENCY)
     const modelAvailable = Number((active.model || 0) < AI_TASK_CONCURRENCY)
     if (!speechAvailable && !modelAvailable) return null
-    const task = db.prepare("SELECT id FROM ai_tasks WHERE status = 'pending' AND ((? = 1 AND module = 'voiceDub') OR (? = 1 AND module <> 'voiceDub')) ORDER BY id LIMIT 1").get(speechAvailable, modelAvailable)
+    // Direct SeedVR2 and LatentSync share a GPU in the current deployment.
+    // Let ordinary voice work run independently, but serialize requested lip-sync
+    // and direct enhancement inside this app instance.
+    const shared = db.prepare(`SELECT
+      SUM(CASE WHEN module = 'superRes' AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.provider') ELSE NULL END) = 'direct' THEN 1 ELSE 0 END) AS enhancement,
+      SUM(CASE WHEN module IN ('voiceDub', 'human') AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.lipSync') ELSE 0 END) = 1 THEN 1 ELSE 0 END) AS lip
+      FROM ai_tasks WHERE status = 'running'`).get()
+    const sharedGpuBusy = process.env.SEEDVR_LIPSYNC_SHARE_GPU !== 'false' && (shared.enhancement || 0) + (shared.lip || 0) > 0
+    const task = db.prepare(`SELECT id FROM ai_tasks WHERE status = 'pending'
+      AND ((? = 1 AND module = 'voiceDub') OR (? = 1 AND module <> 'voiceDub'))
+      AND NOT (? = 1 AND module IN ('voiceDub', 'human') AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.lipSync') ELSE 0 END) = 1)
+      AND NOT (? = 1 AND module = 'superRes' AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.provider') ELSE NULL END) = 'direct')
+      ORDER BY id LIMIT 1`).get(speechAvailable, modelAvailable, Number(sharedGpuBusy), Number(sharedGpuBusy))
     if (!task) return null
     db.prepare("UPDATE ai_tasks SET status = 'running', progress = 0, stage = CASE WHEN module = 'videoJoin' THEN '正在准备视频拼接' WHEN module = 'subtitleEdit' THEN '正在准备字幕' ELSE '正在提交或查询模型任务' END WHERE id = ? AND status = 'pending'")
       .run(task.id)
@@ -269,6 +283,11 @@ export function recoverAiTasks() {
         OR (module = 'human' AND stage IN ('正在合成配音', '正在添加字幕') AND json_valid(params) AND json_extract(params, '$.voiceProfileId') IS NOT NULL)
       )`).run()
     db.prepare("UPDATE ai_tasks SET status = 'pending', stage = '恢复查询上游任务' WHERE status = 'running' AND provider_task_id IS NOT NULL AND idempotency_key IS NOT NULL").run()
+    db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复分段增强'
+      WHERE status = 'running' AND module = 'superRes'
+      AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.provider') ELSE NULL END) = 'direct'
+      AND EXISTS (SELECT 1 FROM super_res_segments s WHERE s.task_id = ai_tasks.id)
+      AND NOT EXISTS (SELECT 1 FROM super_res_segments s WHERE s.task_id = ai_tasks.id AND s.status = 'submitting')`).run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '拼接中断，可重新尝试', error = '服务重启时本地拼接中断，请重新尝试' WHERE status = 'running' AND module = 'videoJoin'").run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '字幕处理中断，可重新尝试', error = '服务重启时字幕处理未完成，请重新尝试' WHERE status = 'running' AND module = 'subtitleEdit'").run()
     db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复长视频制作'
@@ -278,6 +297,9 @@ export function recoverAiTasks() {
       AND NOT EXISTS (SELECT 1 FROM long_video_segments s WHERE s.task_id = ai_tasks.id AND s.status = 'submitting')`).run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '上游状态待核对', error = '服务重启时提交状态未知，请联系管理员核对' WHERE status = 'running'").run()
   }).immediate()
+  for (const row of db.prepare("SELECT DISTINCT s.task_id FROM super_res_segments s JOIN ai_tasks t ON t.id = s.task_id WHERE t.status = 'success'").all()) {
+    try { cleanupSuperResolutionSegments(row.task_id) } catch (error) { console.warn('[超分] 清理已完成片段失败:', error.message) }
+  }
   scheduleQueue()
 }
 
@@ -407,6 +429,9 @@ async function finishTask(taskId, result, module) {
     if (row) toIndex.push(row)
   }
   }).immediate()
+  if (module === 'superRes' && getTask(taskId)?.status === 'success') {
+    try { cleanupSuperResolutionSegments(taskId) } catch (error) { console.warn('[超分] 清理已完成片段失败:', error.message) }
+  }
   for (const row of toIndex) indexMaterial(row)
 }
 
@@ -434,7 +459,7 @@ async function runRealTask(module, params, tpl, context) {
   if (!realEnabled()) throw new Error('真实AI未启用')
   if (module === 'videoAnalysis') return analyzeVideo(params, context.onStage)
   if (module === 'subtitleTranscribe') return transcribeSubtitles(params.videoUrl, context.onStage)
-  if (module === 'superRes') return enhanceVideo(params.videoUrl, context)
+  if (module === 'superRes') return enhanceVideo(params.videoUrl, { ...context, provider: params.provider })
 
   switch (module) {
     case 'threeSecond': {
@@ -658,6 +683,7 @@ export function deleteTask(id) {
   const task = db.prepare('SELECT status, result FROM ai_tasks WHERE id = ?').get(id)
   if (task && !['success', 'failed', 'canceled'].includes(task.status)) throw new Error('进行中或待核对的任务不能删除')
   const segments = db.prepare('SELECT result_url, first_frame_url FROM long_video_segments WHERE task_id = ?').all(id)
+  const superSegments = db.prepare('SELECT input_url, result_url FROM super_res_segments WHERE task_id = ?').all(id)
   const r = db.prepare('DELETE FROM ai_tasks WHERE id = ?').run(id)
   if (task?.result) {
     try {
@@ -668,6 +694,7 @@ export function deleteTask(id) {
     } catch { /* result 非 JSON 忽略 */ }
   }
   cleanupFiles(segments.flatMap((segment) => [segment.result_url, segment.first_frame_url]))
+  cleanupFiles(superSegments.flatMap((segment) => [segment.input_url, segment.result_url]))
   return r
 }
 
@@ -686,6 +713,7 @@ export async function cancelTask(id) {
   }
   if (!['pending', 'running', 'reconciling'].includes(task.status)) throw new Error('当前任务状态不支持取消')
   if (task.module === 'voiceDub') throw new Error('配音已开始，暂不能取消')
+  if (task.module === 'superRes' && isSeedVRDirectId(task.provider_task_id)) throw new Error('超分模型任务已开始，服务暂不支持取消')
   if (!task.provider_task_id) throw new Error('任务正在提交或处理结果，暂不能取消')
   const providerId = task.provider_task_id
   const upstream = await mgCancelTask(providerId)
