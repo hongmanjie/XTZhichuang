@@ -17,6 +17,7 @@ import dotenv from 'dotenv'
 import { FFMPEG, localMediaPath, probeImage, probeMedia, trimVideo } from './mediaTools.js'
 import { validateH3Frames, validateH3Size } from './h3Spec.js'
 import { embeddingProvider, directEmbedTexts, directEmbedImage, supportsImageEmbeddings } from './embeddingProvider.js'
+import { withSharedH3Lock } from './h3SharedLock.js'
 export { supportsImageEmbeddings }
 
 // 关键：本模块被静态 import 时可能早于 index.js 的 dotenv.config()，
@@ -494,7 +495,24 @@ export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '' } = {})
   })
 }
 
-export async function mgVideoGen({ prompt, soundscape, music, task = 't2av', size = [896, 512], num_frames = 124, fps = 24, imageSrc, lastFrameSrc, model = MG_VIDEO_MODEL, targetDuration, idempotencyKey, resumeTaskId, onSubmitted, onProgress } = {}) {
+// H3 每张卡的常驻显存已经接近满载（空载就占 13 GiB，峰值 22 GiB+），
+// 两个请求同时打到同一个 worker 必然 OOM。这里对所有调用做全局串行，
+// 排队时间可预期，比随机失败重试更省时间。
+let h3Slot = Promise.resolve()
+function withH3Slot(run) {
+  const next = h3Slot.then(run, run)
+  h3Slot = next.then(() => {}, () => {})
+  return next
+}
+
+export function mgVideoGen(params) {
+  return withH3Slot(() => withSharedH3Lock(() => mgVideoGenInner(params), {
+    idempotencyKey: params?.idempotencyKey,
+    onWait: () => params?.onProgress?.('queued'),
+  }))
+}
+
+async function mgVideoGenInner({ prompt, soundscape, music, task = 't2av', size = [896, 512], num_frames = 124, fps = 24, imageSrc, lastFrameSrc, model = MG_VIDEO_MODEL, targetDuration, idempotencyKey, resumeTaskId, onSubmitted, onProgress } = {}) {
   const frames = validateH3Frames(num_frames)
   const validatedSize = validateH3Size(size)
   if (fps !== 24) throw new Error('当前视频模型仅支持 24 帧/秒')

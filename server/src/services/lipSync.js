@@ -55,11 +55,16 @@ export async function applyLipSync(videoPath, speechPath) {
     const timeout = Math.min(1800000, Math.max(120000, Number(process.env.LIPSYNC_TIMEOUT_MS) || 900000))
     let response
     try { response = await fetch(directUrl('/v1/lipsync'), { method: 'POST', body: form, redirect: 'error', signal: AbortSignal.timeout(timeout) }) }
-    catch (error) { throw new Error(error.name === 'TimeoutError' ? '口型同步超时，服务可能仍在处理' : '口型同步服务连接中断，服务可能仍在处理') }
+    catch (cause) {
+      const error = new Error(cause.name === 'TimeoutError' ? '口型同步超时，服务可能仍在处理' : '口型同步服务连接中断，服务可能仍在处理')
+      error.code = 'LIPSYNC_UNCERTAIN'; error.cause = cause; throw error
+    }
     if (!response.ok) {
       let detail = ''
       try { detail = String((await response.json()).detail || '').slice(0, 180) } catch {}
-      throw new Error('口型同步失败（HTTP ' + response.status + '）' + (detail ? '：' + detail : '，请检查人物是否清晰正面'))
+      const error = new Error('口型同步失败（HTTP ' + response.status + '）' + (detail ? '：' + detail : '，请检查人物是否清晰正面'))
+      error.code = 'LIPSYNC_FAILED'
+      throw error
     }
     if (!(response.headers.get('content-type') || '').toLowerCase().startsWith('video/')) throw new Error('口型服务没有返回有效视频')
     if (Number(response.headers.get('content-length') || 0) > MAX_OUTPUT_BYTES || !response.body) throw new Error('口型同步结果过大或为空')

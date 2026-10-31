@@ -20,8 +20,13 @@ export function planSuperResolutionSegments(totalFrames, chunkFrames = 6, overla
   const result = []
   let covered = 0
   while (covered < totalFrames) {
-    const start = covered === 0 ? 0 : Math.max(0, Math.min(covered - overlap, totalFrames - chunkFrames))
-    const frames = Math.min(chunkFrames, totalFrames - start)
+    let start = covered === 0 ? 0 : Math.max(0, covered - overlap)
+    let frames = Math.min(chunkFrames, totalFrames - start)
+    const minimum = Math.min(6, chunkFrames, totalFrames)
+    if (frames < minimum) {
+      start = Math.max(0, totalFrames - minimum)
+      frames = totalFrames - start
+    }
     const drop = covered - start
     if (drop >= frames) throw new Error('超分片段规划无效')
     result.push({ start, frames, drop })

@@ -6,6 +6,7 @@
 //  - ES 不可用时由调用方降级 SQLite
 // ============================================================
 import { Client } from '@elastic/elasticsearch'
+import db from '../db.js'
 import { realEnabled, EMBED_DIMS, embedTexts, embedQuery, embedImage, supportsImageEmbeddings, rerankDocs } from './aiProviders.js'
 import { embeddingProvider } from './embeddingProvider.js'
 
@@ -221,12 +222,21 @@ async function withEmbedding(index, doc) {
 // The backfill path may use create-only writes to avoid overwriting concurrent updates.
 export async function indexDoc(index, doc, { onlyIfMissing = false } = {}) {
   if (!isESAvailable()) return false
+  // Embedding is asynchronous. A user can delete an uploaded image while it
+  // is being indexed, so check SQLite both before and after the ES write.
+  const stillExists = () => index !== 'materials' || Boolean(db.prepare('SELECT 1 FROM materials WHERE id = ?').get(doc.id))
   try {
+    if (!stillExists()) return false
     const enriched = await withEmbedding(index, doc)
+    if (!stillExists()) return false
     await esClient.index({ index: INDICES[index], id: String(doc.id), document: enriched, refresh: true, ...(onlyIfMissing ? { op_type: 'create' } : {}) })
+    if (!stillExists()) { await deleteDoc(index, doc.id); return false }
     return true
   } catch (e) {
-    if (onlyIfMissing && (e.statusCode === 409 || e.meta?.statusCode === 409)) return true
+    if (onlyIfMissing && (e.statusCode === 409 || e.meta?.statusCode === 409)) {
+      if (!stillExists()) { await deleteDoc(index, doc.id); return false }
+      return true
+    }
     console.warn(`[ES] 索引失败: ${e.message}`)
     return false
   }

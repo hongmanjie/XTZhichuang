@@ -3,14 +3,16 @@ import { Button, Checkbox, Empty, Input, InputNumber, message, Modal, Popconfirm
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/request'
 import { withBase } from "../../utils/base"
+import { useLocation } from 'react-router-dom'
 
-type Voice = { id: number; name: string }
+type Voice = { id: number; name: string; scene?: string; system?: boolean }
 type VoiceStatus = { available: boolean | null; reason: string; managementAvailable: boolean | null; managementReason: string; synthesisProvider: string; maxTextLength: number; subtitleTranscribePoints: number | null; lipSyncAvailable: boolean | null; lipSyncReason: string; lipSyncProvider: string }
 type Material = { id: number; name: string; url: string }
 type SubtitleSegment = { text: string; start: number | null; end: number | null }
 type Task = { id: number; task_no: string; module: string; status: string; stage?: string; error?: string; result?: any; params?: any; provider_task_id?: string }
 
 export default function VoiceStudio() {
+  const location = useLocation()
   const [voices, setVoices] = useState<Voice[]>([])
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>()
   const [materials, setMaterials] = useState<Material[]>([])
@@ -48,6 +50,14 @@ export default function VoiceStudio() {
     const timer = setInterval(load, 6000)
     return () => clearInterval(timer)
   }, [load])
+  useEffect(() => {
+    const incoming = location.state as { videoUrl?: unknown; text?: unknown } | null
+    if (!incoming || typeof incoming.videoUrl !== 'string' || !/^\/(?:uploads|api\/(?:material\/)?files)\//.test(incoming.videoUrl)) return
+    setWorkMode('captions')
+    setVideoUrl(incoming.videoUrl)
+    if (typeof incoming.text === 'string') setSubtitleText(incoming.text.slice(0, 600))
+  }, [location.key])
+
   useEffect(() => {
     const check = () => api.voiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus({ available: null, reason: 'health_unknown', managementAvailable: null, managementReason: 'health_unknown', synthesisProvider: 'unknown', maxTextLength: 600, subtitleTranscribePoints: null, lipSyncAvailable: null, lipSyncReason: 'health_unknown', lipSyncProvider: 'unknown' }))
     check()
@@ -149,8 +159,8 @@ export default function VoiceStudio() {
           {voiceStatus?.available === false && <div className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">配音服务暂时不可连接，请检查网络或稍后重试；字幕校对仍可使用。</div>}
           {voiceStatus?.available === null && <p className="text-xs text-gray-500">暂时无法确认配音服务状态，可尝试使用。</p>}
           {voiceStatus?.managementAvailable === false && <p className="text-xs text-amber-700">音色管理服务暂时不可连接，无法添加或删除音色；已有音色能否使用取决于配音服务状态。</p>}
-          <div><label className="mb-2 block text-sm font-medium">2. 选择音色</label><div className="flex gap-2"><Select className="flex-1" placeholder="选择我的音色" value={voiceId} onChange={setVoiceId} options={voices.map((v) => ({ value: v.id, label: v.name }))} /><Button icon={<PlusOutlined />} disabled={voiceStatus?.managementAvailable === false} onClick={() => setVoiceModal(true)}>添加音色</Button></div>
-            {voiceId && <Popconfirm title="删除该音色？" description="删除后无法继续用它合成语音。" onConfirm={async () => { try { await api.deleteVoice(voiceId); setVoiceId(undefined); load(); message.success('音色已删除') } catch {} }}><button disabled={voiceStatus?.managementAvailable === false} className="mt-2 text-xs text-gray-500 hover:text-red-500 disabled:opacity-40"><DeleteOutlined /> 删除所选音色</button></Popconfirm>}</div>
+          <div><label className="mb-2 block text-sm font-medium">2. 选择音色</label><div className="flex gap-2"><Select className="flex-1" placeholder="选择我的音色" value={voiceId} onChange={setVoiceId} options={voices.map((v) => ({ value: v.id, label: v.scene ? `${v.name}｜${v.scene}` : v.name }))} /><Button icon={<PlusOutlined />} disabled={voiceStatus?.managementAvailable === false} onClick={() => setVoiceModal(true)}>添加音色</Button></div>
+            {voiceId && Number(voiceId) > 0 && <Popconfirm title="删除该音色？" description="删除后无法继续用它合成语音。" onConfirm={async () => { try { await api.deleteVoice(voiceId); setVoiceId(undefined); load(); message.success('音色已删除') } catch {} }}><button disabled={voiceStatus?.managementAvailable === false} className="mt-2 text-xs text-gray-500 hover:text-red-500 disabled:opacity-40"><DeleteOutlined /> 删除所选音色</button></Popconfirm>}</div>
           <div><label className="mb-2 block text-sm font-medium">3. 输入配音文案</label><Input.TextArea rows={5} maxLength={voiceStatus?.maxTextLength || 600} showCount value={script} onChange={(e) => setScript(e.target.value)} placeholder="输入视频需要说的话" /></div>
           <div className="flex flex-wrap items-center gap-4"><span className="text-sm">语速</span><InputNumber min={0.5} max={2} step={0.1} value={speed} onChange={(value) => setSpeed(value || 1)} /><span className="text-xs text-gray-500">文案过长时可提高语速或缩短内容</span></div>
           <div><div className="mb-2 text-sm font-medium">原视频声音</div><Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}><Radio value="replace">替换原音</Radio><Radio value="mix">保留低音量原音</Radio></Radio.Group><p className="mt-2 text-xs text-gray-500">保留原音时，原视频中的人声也会保留并可能与新配音重叠。</p></div>
@@ -175,7 +185,7 @@ export default function VoiceStudio() {
               <Button className="mt-2" icon={<PlusOutlined />} disabled={segments.length >= 80} onClick={() => setSegments((items) => { const end = items[items.length - 1]?.end || 0; return [...items, { text: '', start: end, end: Math.min(180, end + 3) }] })}>添加一句</Button>
             </div>
             <div><label className="mb-2 block text-sm font-medium">字幕样式</label><Select value={subtitleStyle} onChange={setSubtitleStyle} options={[{ value: 'pure', label: '简洁白' }, { value: 'vivid', label: '电商金' }, { value: 'violet', label: '品牌紫' }]} /></div>
-            <div><label className="mb-2 block text-sm font-medium">旧字幕遮挡</label><Select className="w-full" value={coverMode} onChange={setCoverMode} options={[{ value: 'none', label: '不遮挡' }, { value: 'bottom15', label: '底部黑条（画面高度的 15%）' }, { value: 'bottom20', label: '底部黑条（画面高度的 20%）' }, { value: 'bottom25', label: '底部黑条（画面高度的 25%）' }]} /><p className="mt-2 text-xs text-gray-500">黑条会整段遮住底部画面，再叠加新字幕；旧字幕不在黑条区域时仍会可见。这不是无痕去字，请查看成片。</p></div>
+            <div><label className="mb-2 block text-sm font-medium">旧字幕遮挡</label><Select className="w-full" value={coverMode} onChange={setCoverMode} options={[{ value: 'none', label: '不遮挡' }, { value: 'bottom15', label: '底部黑条（画面高度的 15%）' }, { value: 'bottom20', label: '底部黑条（画面高度的 20%）' }, { value: 'bottom25', label: '底部黑条（画面高度的 25%）' }, { value: 'bottom15White', label: '底部白条（画面高度的 15%）' }, { value: 'bottom20White', label: '底部白条（画面高度的 20%）' }, { value: 'bottom25White', label: '底部白条（画面高度的 25%）' }]} /><p className="mt-2 text-xs text-gray-500">遮挡条会整段盖住底部画面，再叠加新字幕；旧字幕不在覆盖区域时仍会可见。白条配简洁样式时自动使用深色字。这不是无痕去字，请查看成片。</p></div>
             <div className="rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-500">字幕会叠加到画面并保留原声音；每条字幕需按时间顺序排列，不重叠，视频最长 180 秒。本地处理暂不扣点。</div>
             <Button type="primary" size="large" block loading={submitting} disabled={uploading || estimating} onClick={createCaptions}>生成字幕视频</Button>
           </>}

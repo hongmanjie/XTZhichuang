@@ -11,6 +11,13 @@ services:
       MODELGATE_BASE: ${MODELGATE_BASE:?Set MODELGATE_BASE in .env.dev}
       MODELGATE_API_KEY: ${MODELGATE_API_KEY:?Set MODELGATE_API_KEY in .env.dev}
       MODELGATE_ENABLED: "true"
+      ALIGNMENT_PROVIDER: ${ALIGNMENT_PROVIDER:-disabled}
+      ALIGN_SERVICE_BASE_URL: ${ALIGN_SERVICE_BASE_URL:-}
+      ALIGN_SERVICE_TOKEN: ${ALIGN_SERVICE_TOKEN:-}
+      VISION_PROVIDER: ${VISION_PROVIDER:-disabled}
+      VISION_DIRECT_BASE_URL: ${VISION_DIRECT_BASE_URL:-}
+      VISION_DIRECT_MODEL: ${VISION_DIRECT_MODEL:-Qwen3.6-35B-A3B-FP8}
+      VISION_DIRECT_API_KEY: ${VISION_DIRECT_API_KEY:-}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-modelgate}
       EMBEDDING_DIRECT_BASE_URL: ${EMBEDDING_DIRECT_BASE_URL:-}
       EMBEDDING_DIRECT_MODEL: ${EMBEDDING_DIRECT_MODEL:-qwen3-vl-embedding-2b}
@@ -19,9 +26,15 @@ services:
       LIPSYNC_TIMEOUT_MS: ${LIPSYNC_TIMEOUT_MS:-900000}
       AI_REAL_ENABLED: "true"
       AI_TASK_CONCURRENCY: ${AI_TASK_CONCURRENCY:-1}
+      H3_LOCK_URL: ${H3_LOCK_URL:-}
+      H3_LOCK_KEY: ${H3_LOCK_KEY:-xtzc:h3:generation}
       TTS_TASK_CONCURRENCY: ${TTS_TASK_CONCURRENCY:-1}
       INDEX_TTS_BASE_URL: ${INDEX_TTS_BASE_URL:-}
       INDEX_TTS_SYNTHESIS_PROVIDER: ${INDEX_TTS_SYNTHESIS_PROVIDER:-modelgate}
+      SUBTITLE_REPAIR_BASE_URL: ${SUBTITLE_REPAIR_BASE_URL:-}
+      SUBTITLE_REPAIR_MODE: ${SUBTITLE_REPAIR_MODE:-sttn-det}
+      SUBTITLE_REPAIR_BAND_TOP: ${SUBTITLE_REPAIR_BAND_TOP:-0.82}
+      SUBTITLE_REPAIR_TIMEOUT_MS: ${SUBTITLE_REPAIR_TIMEOUT_MS:-900000}
       SUPER_RES_PROVIDER: ${SUPER_RES_PROVIDER:-modelgate}
       SEEDVR_DIRECT_BASE_URL: ${SEEDVR_DIRECT_BASE_URL:-}
       SEEDVR_DIRECT_WAIT_MS: ${SEEDVR_DIRECT_WAIT_MS:-5400000}
@@ -42,6 +55,13 @@ services:
       interval: 20s
       timeout: 5s
       retries: 5
+  h3-lock:
+    image: ${DEV_REDIS_IMAGE:-redis:7.4-alpine}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--save", ""]
+    mem_limit: 96m
+    volumes:
+      - h3-lock-data:/data
   elasticsearch:
     image: ${DEV_ES_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.0}
     restart: unless-stopped
@@ -56,3 +76,4 @@ services:
 volumes:
   app-data:
   app-uploads:
+  h3-lock-data:

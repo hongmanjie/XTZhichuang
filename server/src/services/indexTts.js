@@ -9,9 +9,10 @@ import { burnSubtitles } from './subtitleBurn.js'
 import { mgSpeech, modelGateStatus } from './aiProviders.js'
 import { applyLipSync, lipSyncStatus } from './lipSync.js'
 import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
+import { presetByVoiceId } from './voicePresets.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PRIVATE_DIR = process.env.PRIVATE_DATA_DIR ? path.resolve(process.env.PRIVATE_DATA_DIR) : path.resolve(__dirname, '../../data/private')
+export const PRIVATE_DIR = process.env.PRIVATE_DATA_DIR ? path.resolve(process.env.PRIVATE_DATA_DIR) : path.resolve(__dirname, '../../data/private')
 
 function ttsUrl(resource) {
   const base = process.env.INDEX_TTS_BASE_URL
@@ -113,6 +114,7 @@ export async function uploadVoice(ownerId, name, audio, filename) {
 }
 
 export async function deleteVoice(ownerId, id) {
+  if (presetByVoiceId(id)) throw new Error('内置音色不能删除')
   const voice = db.prepare('SELECT * FROM voice_profiles WHERE id = ? AND owner_id = ?').get(id, ownerId)
   if (!voice) throw new Error('音色不存在')
   try { await ttsFetch(`/v1/audio/voices/${encodeURIComponent(voice.provider_name)}`, { method: 'DELETE' }, 30000) }
@@ -120,21 +122,39 @@ export async function deleteVoice(ownerId, id) {
   db.prepare('DELETE FROM voice_profiles WHERE id = ? AND owner_id = ?').run(id, ownerId)
 }
 
-export async function dubVideo(ownerId, params, context = {}) {
+function resolveVoice(ownerId, voiceId) {
+  const preset = presetByVoiceId(voiceId)
+  if (preset) return { provider_name: preset.providerName, system: true }
+  const stored = db.prepare('SELECT * FROM voice_profiles WHERE id = ? AND owner_id = ?').get(voiceId, ownerId)
+  return stored || null
+}
+
+// TTS 服务会在首尾各留 0.5–1.5 秒静音，短文案时几乎听不到人声。
+// 只裁掉边缘静音并保留一点气口，句中停顿保持原样。
+async function trimEdgeSilence(filePath) {
+  const trimmed = `${filePath}.trim.wav`
+  try {
+    await runMedia(FFMPEG, ['-y', '-i', filePath, '-af',
+      'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.08,areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.12,areverse',
+      '-ac', '1', '-c:a', 'pcm_s16le', trimmed], 120000)
+    if (!fs.existsSync(trimmed) || fs.statSync(trimmed).size < 2048) throw new Error('裁剪结果为空')
+    return trimmed
+  } catch {
+    try { fs.unlinkSync(trimmed) } catch {}
+    return null
+  }
+}
+
+// A complete speech file is created before video planning. Callers own the
+// returned private path and must either persist it safely or delete it.
+export async function synthesizeSpeech(ownerId, params, context = {}) {
   const synthesisProvider = process.env.INDEX_TTS_SYNTHESIS_PROVIDER || 'direct'
-  const voice = db.prepare('SELECT * FROM voice_profiles WHERE id = ? AND owner_id = ?').get(params.voiceId, ownerId)
+  const voice = resolveVoice(ownerId, params.voiceId)
   if (!voice) throw new Error('音色不存在或无权使用')
-  const videoPath = localMediaPath(params.videoUrl)
-  if (!videoPath || !fs.existsSync(videoPath)) throw new Error('视频文件不存在')
+  if (typeof params.text !== 'string' || !params.text.trim() || params.text.length > ttsTextLimit()) throw new Error('配音文案长度无效')
   await requireTtsReachable()
-  const video = await probeMedia(videoPath)
   fs.mkdirSync(PRIVATE_DIR, { recursive: true })
   const audioPath = path.join(PRIVATE_DIR, `speech_${crypto.randomUUID()}.wav`)
-  const outName = `dubbing_${crypto.randomUUID()}.mp4`
-  const output = path.join(MEDIA_UPLOAD_DIR, outName)
-  let synced = null
-  let lipSync = { requested: params.lipSync === true, applied: false }
-  const warnings = []
   try {
     let data
     let response
@@ -151,8 +171,39 @@ export async function dubVideo(ownerId, params, context = {}) {
       error.code = 'TTS_UNCERTAIN'; error.cause = cause; throw error
     }
     if (!data.length || !(response.headers.get('content-type') || '').startsWith('audio/')) throw new Error('IndexTTS 未返回有效音频')
-    fs.writeFileSync(audioPath, data, { mode: 0o600 })
-    const audio = await probeAudio(audioPath)
+    fs.writeFileSync(audioPath, data, { mode: 0o600, flag: 'wx' })
+    const original = await probeAudio(audioPath)
+    let audio = original
+    const trimmed = await trimEdgeSilence(audioPath)
+    if (trimmed) {
+      const probe = await probeAudio(trimmed)
+      if (probe.duration > 0.3 && probe.duration <= original.duration) {
+        fs.renameSync(trimmed, audioPath)
+        audio = probe
+      } else { try { fs.unlinkSync(trimmed) } catch {} }
+    }
+    return { path: audioPath, duration: audio.duration, synthesisProvider,
+      trimmedSeconds: Number(Math.max(0, original.duration - audio.duration).toFixed(3)) }
+  } catch (error) {
+    try { fs.unlinkSync(audioPath) } catch {}
+    throw error
+  }
+}
+
+export async function dubVideo(ownerId, params, context = {}) {
+  const synthesisProvider = process.env.INDEX_TTS_SYNTHESIS_PROVIDER || 'direct'
+  const videoPath = localMediaPath(params.videoUrl)
+  if (!videoPath || !fs.existsSync(videoPath)) throw new Error('视频文件不存在')
+  const video = await probeMedia(videoPath)
+  let audioPath = null
+  const outName = `dubbing_${crypto.randomUUID()}.mp4`
+  const output = path.join(MEDIA_UPLOAD_DIR, outName)
+  let synced = null
+  let lipSync = { requested: params.lipSync === true, applied: false }
+  const warnings = []
+  try {
+    const audio = await synthesizeSpeech(ownerId, params, context)
+    audioPath = audio.path
     if (audio.duration > video.duration + 0.15) throw new Error(`配音约 ${audio.duration.toFixed(1)} 秒，超过视频 ${video.duration.toFixed(1)} 秒；请缩短文案或加快语速`)
     let visualPath = videoPath
     if (params.lipSync === true) {

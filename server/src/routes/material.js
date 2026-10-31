@@ -87,6 +87,7 @@ router.get('/material/list', authRequired, asyncHandler(async (req, res) => {
   const { keyword, type, category, folder_id, source, pageNum = 1, pageSize = 20 } = req.query
   const from = (+pageNum - 1) * +pageSize
   const scope = teamCond(req.user.id)
+  const manageableOwners = new Set([Number(req.user.id), ...db.prepare('SELECT id FROM users WHERE created_by = ?').all(req.user.id).map((row) => Number(row.id))])
 
   // 有关键词且ES可用 → ES检索
   if (keyword && isESAvailable()) {
@@ -100,7 +101,17 @@ router.get('/material/list', authRequired, asyncHandler(async (req, res) => {
         keyword, filters, from, size: +pageSize,
         sort: [{ _score: 'desc' }, { created_at: 'desc' }],
       })
-      return res.json(page(list, total, +pageNum, +pageSize))
+      // SQLite is authoritative: stale ES documents must not resurrect a
+      // deleted asset, including after an indexing or network interruption.
+      const ids = [...new Set(list.map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0))]
+      const live = new Map()
+      for (let offset = 0; offset < ids.length; offset += 400) {
+        const batch = ids.slice(offset, offset + 400)
+        const rows = db.prepare(`SELECT id, owner_id FROM materials WHERE ${scope.clause} AND id IN (${batch.map(() => '?').join(',')})`).all(...scope.args, ...batch)
+        rows.forEach((row) => live.set(row.id, Number(row.owner_id)))
+      }
+      const visible = list.filter((item) => live.has(Number(item.id))).map((item) => ({ ...item, canManage: manageableOwners.has(live.get(Number(item.id))) }))
+      return res.json(page(visible, Math.max(0, Number(total) - (list.length - visible.length)), +pageNum, +pageSize))
     } catch (e) {
       console.warn('[ES] 搜索失败，降级SQLite:', e.message)
     }
@@ -116,7 +127,7 @@ router.get('/material/list', authRequired, asyncHandler(async (req, res) => {
   const where = 'WHERE ' + conds.join(' AND ')
   const total = db.prepare(`SELECT COUNT(*) c FROM materials ${where}`).get(...args).c
   const list = db.prepare(`SELECT * FROM materials ${where} ORDER BY id DESC LIMIT ? OFFSET ?`)
-    .all(...args, +pageSize, from)
+    .all(...args, +pageSize, from).map((item) => ({ ...item, canManage: manageableOwners.has(Number(item.owner_id)) }))
   res.json(page(list, total, +pageNum, +pageSize))
 }))
 

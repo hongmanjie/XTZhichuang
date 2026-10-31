@@ -142,9 +142,15 @@ test('sampled OCR ignores weak one-character shape errors but detects real capti
   const { inspectVideoText } = await import('../src/services/videoTextCheck.js')
   const weak = await inspectVideoText('/uploads/source.mp4', { ocr: async () => ({ lines: [{ text: 'V', conf: 0.64 }] }) })
   assert.equal(weak.status, 'clear')
-  assert.equal(weak.samples, 3)
+  assert.equal(weak.samples, 5)
   const caption = await inspectVideoText('/uploads/source.mp4', { ocr: async () => ({ lines: [{ text: '欢迎来到小店', conf: 0.99 }] }) })
   assert.equal(caption.status, 'text_detected')
+  const microphone = await inspectVideoText('/uploads/source.mp4', { ocr: async () => ({ lines: [{ text: '1-8', conf: 0.53, bbox: [395, 95, 50, 143] }] }) })
+  assert.equal(microphone.status, 'clear')
+  const noisyCaption = await inspectVideoText('/uploads/source.mp4', { ocr: async () => ({ lines: [{ text: '沛陇捕南的圈', conf: 0.48 }] }) })
+  assert.equal(noisyCaption.status, 'text_detected')
+  const twoWeak = await inspectVideoText('/uploads/source.mp4', { ocr: async () => ({ lines: [{ text: '衣领', conf: 0.4 }] }) })
+  assert.equal(twoWeak.status, 'clear')
   const oneStrong = await inspectVideoText('/uploads/source.mp4', { ocr: async () => ({ lines: [{ text: '字', conf: 0.96 }] }) })
   assert.equal(oneStrong.status, 'text_detected')
 })
@@ -179,6 +185,18 @@ test('direct SeedVR2 targets portrait 1080P, preserves audio, and resumes a know
   seedMode = 'bad-result'
   try { await assert.rejects(enhanceVideo(videoUrl, { provider: 'direct', resumeTaskId: saved }), (error) => error.code === 'MG_RESULT_INVALID') }
   finally { seedMode = 'ok' }
+})
+
+test('enhancement segmentation preserves every frame without padding a short tail to a full chunk', async () => {
+  const { planSuperResolutionSegments } = await import('../src/services/superResolutionSegments.js')
+  const segments = planSuperResolutionSegments(72, 24, 2)
+  assert.deepEqual(segments.map((segment) => segment.frames), [24, 24, 24, 6])
+  assert.equal(segments.reduce((sum, segment) => sum + segment.frames - segment.drop, 0), 72)
+  for (const total of [1, 5, 6, 7, 23, 24, 25, 71, 72, 73, 120]) {
+    const plan = planSuperResolutionSegments(total, 24, 2)
+    assert.equal(plan.reduce((sum, segment) => sum + segment.frames - segment.drop, 0), total)
+    assert.ok(plan.every((segment) => segment.frames > segment.drop && segment.start >= 0))
+  }
 })
 
 test('low-memory enhancement resumes completed segments and preserves frame count and audio', async () => {

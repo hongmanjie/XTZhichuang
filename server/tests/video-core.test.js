@@ -21,11 +21,14 @@ process.env.MODELGATE_POLL_INITIAL_MS = '0'
 process.env.MODELGATE_ASR_MODEL = 'FunASR-Nano'
 process.env.MODELGATE_OCR_MODEL = 'PPOCR-v5-Server'
 process.env.AI_REAL_ENABLED = 'true'
+process.env.VISION_PROVIDER = 'disabled'
 process.env.INDEX_TTS_SYNTHESIS_PROVIDER = 'direct'
 
 let media, providers, spec, db, tasks, server, tts
 const submissions = []
 const chatRequests = []
+const visionRequests = []
+let visionOverlayStatus = 'absent'
 const gatewaySpeechRequests = []
 const failureJobs = new Set()
 const imageJobs = new Set()
@@ -39,9 +42,17 @@ let heldChatClosed = false
 let holdNextVideo = false
 let failOCR = false
 let ocrText = ''
+let ocrOnceText = ''
+let ocrAfterLipText = ''
+let ocrAfterLipCall = Infinity
 let failSpeech = false
+let speechFixture = 'sample.wav'
+const speechRequests = []
+let lipCalls = 0, failLipAt = 0, dropLipAt = 0
 let asrErrorStatus = 0
 let asrCalls = 0
+let asrText = '识别出的语音'
+const asrTextQueue = []
 let ttsHealthCode = 200
 let failGatewayConnection = false
 let invalidRestorationResult = false
@@ -53,13 +64,26 @@ before(async () => {
   await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=red:s=160x96:d=8:r=24', '-f', 'lavfi', '-i', 'color=blue:s=160x96:d=1:r=24', '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[v]', '-map', '[v]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', fixture])
   await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=blue:s=160x96:d=3:r=24', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(uploads, 'blue.mp4')])
   await media.runMedia(media.FFMPEG, ['-y', '-ss', '1', '-i', fixture, '-frames:v', '1', path.join(uploads, 'input.jpg')])
-  await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=c=black@0.0:s=240x320:d=1,format=rgba,drawbox=x=70:y=60:w=100:h=200:color=red@1.0:t=fill:replace=1', '-frames:v', '1', path.join(uploads, 'fixture-transparent.png')])
+  await media.runMedia(media.FFMPEG, ['-y', '-ss', '1', '-i', path.join(uploads, 'blue.mp4'), '-frames:v', '1', path.join(uploads, 'blue-still.jpg')])
+  await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=c=red:s=100x200:d=1,format=rgba,pad=240:320:70:60:color=black@0', '-frames:v', '1', path.join(uploads, 'fixture-transparent.png')])
   await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:a', 'pcm_s16le', path.join(temp, 'sample.wav')])
+  await media.runMedia(media.FFMPEG, ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=11', '-c:a', 'pcm_s16le', path.join(temp, 'long-speech.wav')])
   await media.runMedia(media.FFMPEG, ['-y', '-i', fixture, '-i', path.join(temp, 'sample.wav'), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-af', 'apad', '-t', '9', path.join(uploads, 'with-audio.mp4')])
   await media.runMedia(media.FFMPEG, ['-y', '-i', fixture, '-i', path.join(temp, 'sample.wav'), '-t', '1', '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-c:a', 'aac', path.join(uploads, 'short-audio.mp4')])
   await media.runMedia(media.FFMPEG, ['-y', '-i', path.join(uploads, 'short-audio.mp4'), '-vf', 'scale=320:192', '-an', '-c:v', 'libx264', path.join(uploads, 'enhanced.mp4')])
   server = http.createServer((req, res) => {
-    if (req.method === 'HEAD' && req.url === '/xt-platform/models/v1' && failGatewayConnection) {
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = ''
+      req.on('data', (chunk) => { body += chunk })
+      req.on('end', () => {
+        const request = JSON.parse(body)
+        visionRequests.push(request)
+        const isOverlayCheck = request.messages?.[0]?.content?.includes('字幕叠加检测助手')
+        const content = isOverlayCheck ? JSON.stringify({ status: visionOverlayStatus, reason: '测试' }) : '抽样画面中有一个红色方块，背景为纯色。画面顶部出现字幕：绝不复制旧字。'
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message: { content } }] }))
+      })
+    } else if (req.method === 'HEAD' && req.url === '/xt-platform/models/v1' && failGatewayConnection) {
       req.socket.destroy()
     } else if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(ttsHealthCode, { 'Content-Type': 'application/json' })
@@ -73,13 +97,15 @@ before(async () => {
           asrCalls++
           if (asrErrorStatus) { res.writeHead(asrErrorStatus, { 'Content-Type': 'application/json' }); res.end('{}'); return }
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ result: { prediction: { results: [{ text: '识别出的语音', start_time: 0, end_time: 3 }] } } }))
+          res.end(JSON.stringify({ result: { prediction: { results: [{ text: asrTextQueue.length ? asrTextQueue.shift() : asrText, start_time: 0, end_time: 3 }] } } }))
           return
         }
         if (payload.model === 'PPOCR-v5-Server') {
           if (failOCR) { res.writeHead(503); res.end('{}'); return }
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ result: { lines: ocrText ? [{ text: ocrText }] : [] } }))
+          const visibleText = ocrOnceText || ocrText || (lipCalls >= ocrAfterLipCall ? ocrAfterLipText : '')
+          ocrOnceText = ''
+          res.end(JSON.stringify({ result: { lines: visibleText ? [{ text: visibleText }] : [] } }))
           return
         }
         if (payload.model === 'IndexTTS-2.5') {
@@ -104,12 +130,13 @@ before(async () => {
           }
           res.writeHead(200, { 'Content-Type': 'application/json' })
           const isScript = payload.messages?.[0]?.content?.includes('短视频分镜脚本专家')
+          const isHumanDraft = payload.messages?.[0]?.content?.includes('短视频口播文案助手')
           const plannedCount = Number(payload.messages?.[1]?.content?.match(/共 (\d+) 段/)?.[1] || 2)
           const content = isScript ? [{ scene_desc: '产品展示', line: '产品介绍', duration: 5 }] : {
             visual_style: '暖色自然光', music: '柔和背景音乐',
             shots: Array.from({ length: plannedCount }, (_, i) => ({ visual: `产品镜头 ${i + 1}`, start: '产品居中', action: '缓慢推进', camera: '轻微移动', end: '产品特写', soundscape: '安静室内' })),
           }
-          res.end(JSON.stringify({ result: { choices: [{ message: { content: JSON.stringify(content) } }] } }))
+          res.end(JSON.stringify({ result: { choices: [{ message: { content: isHumanDraft ? '欢迎了解这款白色陶瓷杯。' : JSON.stringify(content) } }] } }))
           return
         }
         submissions.push({ body: payload, key: req.headers['idempotency-key'] })
@@ -119,6 +146,23 @@ before(async () => {
         if (submissions.length === failSubmissionAt) failureJobs.add(`job-${submissions.length}`)
         res.writeHead(202, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ result: { task_id: `job-${submissions.length}` } }))
+      })
+    } else if (req.method === 'GET' && req.url === '/healthz') {
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"status":"ok"}')
+    } else if (req.method === 'POST' && req.url === '/v1/lipsync') {
+      const chunks = []
+      req.on('data', (chunk) => chunks.push(chunk))
+      req.on('end', () => {
+        lipCalls++
+        if (dropLipAt && lipCalls === dropLipAt) { req.socket.destroy(); return }
+        if (failLipAt && lipCalls === failLipAt) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end('{"detail":"test failure"}'); return }
+        const bytes = Buffer.concat(chunks)
+        const boundary = String(req.headers['content-type']).match(/boundary=([^;]+)/)?.[1]
+        const field = bytes.indexOf(Buffer.from('name="video"'))
+        const start = bytes.indexOf(Buffer.from('\r\n\r\n'), field) + 4
+        const end = bytes.indexOf(Buffer.from('\r\n--' + boundary), start)
+        assert.ok(field >= 0 && start > 3 && end > start)
+        res.writeHead(200, { 'Content-Type': 'video/mp4' }); res.end(bytes.subarray(start, end))
       })
     } else if (req.method === 'POST' && req.url === '/v1/audio/voices') {
       const chunks = []
@@ -130,9 +174,14 @@ before(async () => {
         res.end(JSON.stringify({ success: true, voice: { name } }))
       })
     } else if (req.method === 'POST' && req.url === '/v1/audio/speech') {
-      if (failSpeech) { res.writeHead(503); res.end('{}'); return }
-      res.writeHead(200, { 'Content-Type': 'audio/wav' })
-      fs.createReadStream(path.join(temp, 'sample.wav')).pipe(res)
+      if (failSpeech) { req.resume(); res.writeHead(503); res.end('{}'); return }
+      let body = ''
+      req.on('data', (chunk) => { body += chunk })
+      req.on('end', () => {
+        speechRequests.push(JSON.parse(body))
+        res.writeHead(200, { 'Content-Type': 'audio/wav' })
+        fs.createReadStream(path.join(temp, speechFixture)).pipe(res)
+      })
     } else if (req.method === 'DELETE' && req.url?.startsWith('/v1/audio/voices/')) {
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}')
     } else if (req.method === 'DELETE' && req.url?.startsWith('/xt-platform/models/v1/tasks/')) {
@@ -383,6 +432,19 @@ test('IndexTTS voice upload and replacement produce a real audio track and enfor
   assert.equal(db.prepare('SELECT COUNT(*) n FROM voice_profiles WHERE id = ?').get(voice.id).n, 0)
 })
 
+test('subtitle inspection retries a transient OCR failure without assuming the frame is clear', async () => {
+  const { inspectVideoText } = await import('../src/services/videoTextCheck.js')
+  let calls = 0
+  const check = await inspectVideoText('/uploads/fixture.mp4', { ocr: async () => {
+    calls++
+    if (calls === 1) throw new Error('temporary OCR failure')
+    return { lines: [] }
+  } })
+  assert.equal(check.status, 'clear')
+  assert.equal(check.samples, 5)
+  assert.equal(calls, 6)
+})
+
 test('automatic subtitles stop when sampled frames contain text or OCR is unavailable', async () => {
   const owner = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('text-guard','test','test',100)").run().lastInsertRowid
   const voice = await tts.uploadVoice(owner, '测试音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
@@ -444,6 +506,30 @@ test('gateway speech uses the enrolled voice even when direct voice management i
   }
 })
 
+test('word timestamps align subtitles to actual speech and reject unrelated recognition', async () => {
+  const { wordTimedSubtitleSegments } = await import('../src/services/subtitleAlign.js')
+  const tokens = [
+    { text: '你', start: 0.1, end: 0.3 }, { text: '好', start: 0.3, end: 0.5 },
+    { text: '世', start: 0.7, end: 0.9 }, { text: '界', start: 0.9, end: 1.1 },
+    { text: '欢', start: 2.0, end: 2.2 }, { text: '迎', start: 2.2, end: 2.4 },
+    { text: '光', start: 2.4, end: 2.6 }, { text: '临', start: 2.6, end: 2.8 },
+  ]
+  const result = wordTimedSubtitleSegments('你好世界。欢迎光临。', tokens, 3)
+  assert.equal(result.similarity, 1)
+  assert.equal(result.segments.length, 2)
+  assert.ok(result.segments[1].start >= 1.9, 'the second sentence starts after the real pause')
+  assert.equal(wordTimedSubtitleSegments('与音频毫无关系的另一段完全不同的文字', tokens, 3), null)
+  const { timedSubtitleSegments } = await import('../src/services/subtitleAlign.js')
+  const numeric = timedSubtitleSegments('它的容量是三百五十毫升。', [], 4).map((segment) => segment.text)
+  assert.ok(numeric.some((line) => line.includes('三百五十毫升')), 'the number and unit must stay together')
+  assert.ok(numeric.every((line) => Array.from(line).length <= 10))
+  const words = timedSubtitleSegments('尺寸以及自己喜欢的使用方式。', [], 4).map((segment) => segment.text)
+  assert.equal(words.join(''), '尺寸以及自己喜欢的使用方式。')
+  assert.ok(words.some((line) => line.includes('喜欢')) && words.some((line) => line.includes('使用')))
+  assert.ok(words.every((line) => Array.from(line).length <= 10))
+  assert.ok(words.every((line) => !line.startsWith('的')))
+})
+
 test('speech subtitle drafts preserve valid provider timing and mark fallback estimates', async () => {
   const { subtitleDraftFromSpeech } = await import('../src/services/subtitleTranscription.js')
   const exact = subtitleDraftFromSpeech({ text: '第一句。第二句。', segments: [{ text: '第一句。', start: 1, end: 2 }, { text: '第二句。', start: 4, end: 5 }] }, 8)
@@ -465,6 +551,307 @@ test('digital-human generation prompt does not expose the script as on-screen te
   assert.doesNotMatch(prompt, /欢迎来到小店/)
   assert.match(prompt, /自然说话/)
   assert.match(prompt, /字幕/)
+})
+
+test('speech verification compares content while ignoring punctuation and warns on mismatch', async () => {
+  const { compareSpeechText } = await import('../src/services/humanSpeechCheck.js')
+  assert.equal(compareSpeechText('欢迎光临。', '欢迎光临').status, 'matched')
+  assert.equal(compareSpeechText('今天介绍白色陶瓷杯', '完全不同的声音').status, 'review')
+  assert.equal(compareSpeechText('欢迎光临', '').status, 'review')
+})
+
+test('720P human planning bounds every H3 request to 124 frames and reserves its segments', async () => {
+  const { humanHasUnsafeLegacy720Plan, humanPlanFromSpeech, humanReservedSegments } = await import('../src/services/humanSpec.js')
+  assert.equal(humanReservedSegments('甲'.repeat(34), '540P'), 1)
+  assert.equal(humanReservedSegments('甲'.repeat(34), '720P'), 2)
+  const durations = humanPlanFromSpeech(7.52, 2, '720P')
+  assert.equal(durations.length, 2)
+  assert.ok(durations.every((duration) => spec.h3FramesForDuration(duration) === 124))
+  assert.throws(() => humanPlanFromSpeech(7.52, 1, '720P'), /预留/)
+  assert.equal(humanHasUnsafeLegacy720Plan('720P', [{ status: 'pending', duration: 8 }]), true)
+  assert.equal(humanHasUnsafeLegacy720Plan('720P', [{ status: 'completed', duration: 8 }]), false)
+  assert.equal(humanHasUnsafeLegacy720Plan('720P', [{ status: 'submitting', provider_task_id: 'known-job', duration: 8 }]), false)
+  assert.equal(humanHasUnsafeLegacy720Plan('540P', [{ status: 'pending', duration: 8 }]), false)
+})
+
+test('audio-first digital human preserves a full long script and generates enough segments', async () => {
+  process.env.AI_REAL_ENABLED = 'true'
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-long','test','test',500)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const text = '欢迎来到小店。这是一段完整的商品介绍文案。'
+  const beforeSpeech = speechRequests.length
+  const beforeVideos = submissions.length
+  speechFixture = 'long-speech.wav'
+  asrText = text
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text, voiceProfileId: voice.id, reservedSegments: 2, subtitle: { enabled: false }, lipSync: false, resolution: '540P' }, 140)
+    for (let i = 0; i < 1000 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success', completed.error)
+    assert.equal(completed.result.humanPipeline, 'audio-first')
+    assert.equal(completed.result.voice.dubbed, true)
+    assert.equal(completed.result.speechCheck.status, 'matched')
+    assert.equal(completed.result.speechCheck.transcript, text)
+    assert.equal(speechRequests.length, beforeSpeech + 1)
+    assert.equal(speechRequests.at(-1).input, text)
+    assert.equal(submissions.length, beforeVideos + 2)
+    const video = await media.probeMedia(media.localMediaPath(completed.result.videos[0].url))
+    assert.equal(video.hasAudio, true)
+    assert.ok(video.duration >= 11)
+    assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(user).ai_points, 360)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM human_voice_workflows WHERE task_id = ?').get(task.id).n, 0)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM long_video_segments WHERE task_id = ?').get(task.id).n, 0)
+  } finally { speechFixture = 'sample.wav'; asrText = '识别出的语音'; await tts.deleteVoice(user, voice.id) }
+})
+
+test('long digital human splits TTS text and verifies each saved audio segment', async () => {
+  const { splitHumanSpeech } = await import('../src/services/humanSpeechSpec.js')
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-speech-parts','test','test',600)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const text = '欢迎来到小店。这是一段商品介绍，用来检查语音分段和完整文案。'.repeat(4)
+  const parts = splitHumanSpeech(text)
+  assert.ok(parts.length > 1)
+  assert.equal(parts.join(''), text)
+  assert.ok(parts.every((part) => Array.from(part).length <= 45))
+  const before = speechRequests.length
+  asrTextQueue.push(...parts)
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text, voiceProfileId: voice.id, reservedSegments: 6, subtitle: { enabled: false }, lipSync: false, resolution: '540P' }, 420)
+    for (let i = 0; i < 1400 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const done = tasks.getTask(task.id)
+    assert.equal(done.status, 'success', done.error)
+    assert.equal(done.result.voice.segments, parts.length)
+    assert.equal(done.result.speechCheck.status, 'matched')
+    assert.equal(done.result.speechCheck.timingMethod, 'tts_segments')
+    assert.equal(speechRequests.slice(before).map((r) => r.input).join(''), text)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM human_speech_segments WHERE task_id = ?').get(task.id).n, 0)
+  } finally { asrTextQueue.length = 0; await tts.deleteVoice(user, voice.id) }
+})
+
+test('severe speech mismatch stops before video and retry regenerates completed speech', async () => {
+  const { splitHumanSpeech } = await import('../src/services/humanSpeechSpec.js')
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-speech-retry','test','test',600)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, 'test voice', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const text = '甲'.repeat(100)
+  const parts = splitHumanSpeech(text)
+  const beforeSpeech = speechRequests.length
+  const beforeVideos = submissions.length
+  asrText = '乙'
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text, voiceProfileId: voice.id, reservedSegments: 4, subtitle: { enabled: false }, lipSync: false, resolution: '540P' }, 280)
+    for (let i = 0; i < 1200 && !['failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(tasks.getTask(task.id).status, 'failed')
+    assert.equal(submissions.length, beforeVideos)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM human_voice_workflows WHERE task_id = ?').get(task.id).n, 0)
+    asrTextQueue.push(...parts)
+    tasks.retryTask(task.id)
+    for (let i = 0; i < 1400 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const done = tasks.getTask(task.id)
+    assert.equal(done.status, 'success', done.error)
+    assert.equal(done.result.speechCheck.status, 'matched')
+    assert.equal(speechRequests.length - beforeSpeech, parts.length * 2)
+  } finally { asrText = '识别出的语音'; asrTextQueue.length = 0; await tts.deleteVoice(user, voice.id) }
+})
+
+test('audio-first long digital human synchronizes every segment and adds subtitles', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-long-lip','test','test',500)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const text = '欢迎来到小店。这是一段完整的商品介绍文案。'
+  const oldProvider = process.env.LIPSYNC_PROVIDER
+  const oldBase = process.env.LIPSYNC_DIRECT_BASE_URL
+  const beforeLip = lipCalls
+  process.env.LIPSYNC_PROVIDER = 'direct'
+  process.env.LIPSYNC_DIRECT_BASE_URL = process.env.INDEX_TTS_BASE_URL
+  speechFixture = 'long-speech.wav'
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text, voiceProfileId: voice.id, reservedSegments: 3, subtitle: { enabled: true, style: 'pure' }, lipSync: true, resolution: '540P' }, 140)
+    for (let i = 0; i < 1200 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success', completed.error)
+    assert.equal(completed.result.lipSync.applied, true)
+    assert.equal(completed.result.subtitle.enabled, true)
+    assert.equal(completed.result.speechCheck.status, 'review')
+    assert.match(completed.result.warnings.join(' '), /语音识别与文案可能不一致/)
+    assert.equal(lipCalls - beforeLip, 2)
+    const video = await media.probeMedia(media.localMediaPath(completed.result.videos[0].url))
+    assert.equal(video.hasAudio, true)
+    assert.ok(video.duration >= 11)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM human_lip_segments WHERE task_id = ?').get(task.id).n, 0)
+  } finally {
+    speechFixture = 'sample.wav'
+    if (oldProvider === undefined) delete process.env.LIPSYNC_PROVIDER; else process.env.LIPSYNC_PROVIDER = oldProvider
+    if (oldBase === undefined) delete process.env.LIPSYNC_DIRECT_BASE_URL; else process.env.LIPSYNC_DIRECT_BASE_URL = oldBase
+    await tts.deleteVoice(user, voice.id)
+  }
+})
+
+test('long digital human resumes completed speech and video after a definite lip failure', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-lip-resume','test','test',500)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const text = '这是一段用于验证失败恢复的完整口播文案。'
+  const beforeVideos = submissions.length
+  const beforeSpeech = speechRequests.length
+  const beforeLip = lipCalls
+  const oldProvider = process.env.LIPSYNC_PROVIDER
+  const oldBase = process.env.LIPSYNC_DIRECT_BASE_URL
+  process.env.LIPSYNC_PROVIDER = 'direct'
+  process.env.LIPSYNC_DIRECT_BASE_URL = process.env.INDEX_TTS_BASE_URL
+  speechFixture = 'long-speech.wav'
+  asrText = text
+  failLipAt = beforeLip + 2
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text, voiceProfileId: voice.id, reservedSegments: 3, subtitle: { enabled: false }, lipSync: true, resolution: '540P' }, 140)
+    for (let i = 0; i < 1200 && !['failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const failed = tasks.getTask(task.id)
+    assert.equal(failed.status, 'failed', failed.error)
+    assert.equal(failed.billing_state, 'refunded')
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM human_lip_segments WHERE task_id = ?').get(task.id).n, 1)
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM long_video_segments WHERE task_id = ? AND status = ?').get(task.id, 'completed').n, 2)
+    failLipAt = 0
+    tasks.retryTask(task.id)
+    for (let i = 0; i < 1000 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success', completed.error)
+    assert.equal(completed.result.lipSync.applied, true)
+    assert.equal(speechRequests.length - beforeSpeech, 1)
+    assert.equal(submissions.length - beforeVideos, 2)
+    assert.equal(lipCalls - beforeLip, 3)
+    assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(user).ai_points, 360)
+  } finally {
+    speechFixture = 'sample.wav'; asrText = '识别出的语音'; failLipAt = 0
+    if (oldProvider === undefined) delete process.env.LIPSYNC_PROVIDER; else process.env.LIPSYNC_PROVIDER = oldProvider
+    if (oldBase === undefined) delete process.env.LIPSYNC_DIRECT_BASE_URL; else process.env.LIPSYNC_DIRECT_BASE_URL = oldBase
+    await tts.deleteVoice(user, voice.id)
+  }
+})
+
+test('an uncertain lip-sync request remains for review without duplicate submission', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-lip-unknown','test','test',200)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const oldProvider = process.env.LIPSYNC_PROVIDER
+  const oldBase = process.env.LIPSYNC_DIRECT_BASE_URL
+  const beforeLip = lipCalls
+  process.env.LIPSYNC_PROVIDER = 'direct'
+  process.env.LIPSYNC_DIRECT_BASE_URL = process.env.INDEX_TTS_BASE_URL
+  dropLipAt = beforeLip + 1
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text: '欢迎来到小店。', voiceProfileId: voice.id, reservedSegments: 1, subtitle: { enabled: false }, lipSync: true, resolution: '540P' }, 70)
+    for (let i = 0; i < 800 && !['failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const pending = tasks.getTask(task.id)
+    assert.equal(pending.status, 'reconciling')
+    assert.equal(pending.stage, '口型状态待核对')
+    assert.equal(pending.billing_state, 'reserved')
+    assert.throws(() => tasks.retryTask(task.id), /上游状态未确认/)
+    assert.equal(lipCalls - beforeLip, 1)
+  } finally {
+    dropLipAt = 0
+    if (oldProvider === undefined) delete process.env.LIPSYNC_PROVIDER; else process.env.LIPSYNC_PROVIDER = oldProvider
+    if (oldBase === undefined) delete process.env.LIPSYNC_DIRECT_BASE_URL; else process.env.LIPSYNC_DIRECT_BASE_URL = oldBase
+    await tts.deleteVoice(user, voice.id)
+  }
+})
+
+test('digital human avoids adding a second subtitle when detected text cannot be safely repaired', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-text-retry','test','test',300)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const beforeVideos = submissions.length
+  ocrOnceText = '模型乱码'
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text: '欢迎来到小店。', voiceProfileId: voice.id, reservedSegments: 1, subtitle: { enabled: true }, lipSync: false, resolution: '540P' }, 70)
+    for (let i = 0; i < 800 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success', completed.error)
+    assert.equal(submissions.length - beforeVideos, 1)
+    assert.equal(completed.result.qualityCheck.status, 'text_detected')
+    assert.equal(completed.result.subtitle.enabled, false)
+    assert.match(completed.result.warnings.join(' '), /暂停添加新字幕/)
+    assert.equal(completed.points_cost, 70)
+  } finally { ocrOnceText = ''; await tts.deleteVoice(user, voice.id) }
+})
+
+test('digital human checks lip-sync output before adding subtitles', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-post-lip-text','test','test',300)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const oldProvider = process.env.LIPSYNC_PROVIDER
+  const oldBase = process.env.LIPSYNC_DIRECT_BASE_URL
+  process.env.LIPSYNC_PROVIDER = 'direct'
+  process.env.LIPSYNC_DIRECT_BASE_URL = `http://127.0.0.1:${server.address().port}`
+  ocrAfterLipCall = lipCalls + 1
+  ocrAfterLipText = '同步后出现的乱码'
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text: '欢迎来到小店。', voiceProfileId: voice.id, reservedSegments: 1, subtitle: { enabled: true }, lipSync: true, resolution: '540P' }, 70)
+    for (let i = 0; i < 1000 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success', completed.error)
+    assert.equal(completed.result.qualityCheck.status, 'text_detected')
+    assert.equal(completed.result.subtitle.enabled, false)
+    assert.match(completed.result.warnings.join(' '), /暂停添加新字幕/)
+  } finally {
+    ocrAfterLipCall = Infinity
+    ocrAfterLipText = ''
+    if (oldProvider === undefined) delete process.env.LIPSYNC_PROVIDER; else process.env.LIPSYNC_PROVIDER = oldProvider
+    if (oldBase === undefined) delete process.env.LIPSYNC_DIRECT_BASE_URL; else process.env.LIPSYNC_DIRECT_BASE_URL = oldBase
+    await tts.deleteVoice(user, voice.id)
+  }
+})
+
+test('digital human sends the actual product image in the combined first frame', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-product','test','test',300)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const before = submissions.length
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text: '欢迎来到小店。', voiceProfileId: voice.id, reservedSegments: 1,
+      firstFrame: '/uploads/blue-still.jpg', productImage: '/uploads/fixture-transparent.png', productDesc: '红色商品',
+      subtitle: { enabled: false }, lipSync: false, resolution: '540P' }, 70)
+    for (let i = 0; i < 1200 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const done = tasks.getTask(task.id)
+    assert.equal(done.status, 'success', done.error)
+    assert.equal(done.result.productReference.usedImage, true)
+    const h3 = submissions.slice(before).find((item) => item.body.model === 'MiniMax-H3')
+    assert.equal(h3.body.task, 'i2av')
+    const framePath = path.join(temp, 'human-product-h3.jpg')
+    fs.writeFileSync(framePath, Buffer.from(h3.body.image_path, 'base64'))
+    const rgbAt = (x, y) => {
+      const frame = spawnSync(media.FFMPEG, ['-v','error','-i',framePath,'-vf',`crop=2:2:${x}:${y},scale=1:1,format=rgb24`,'-frames:v','1','-f','rawvideo','pipe:1'])
+      assert.equal(frame.status, 0)
+      return frame.stdout
+    }
+    const background = rgbAt(20, 20), product = rgbAt(270, 770)
+    assert.ok(background[2] > background[0] + 80, 'person background stays blue')
+    assert.ok(product[0] > product[2] + 80, 'original product pixels are present in the H3 image')
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM human_product_workflows WHERE task_id = ?').get(task.id).n, 0)
+  } finally { await tts.deleteVoice(user, voice.id) }
+})
+
+test('a product without a person image creates a background before H3', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-product-auto-person','test','test',300)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const before = submissions.length
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text: '欢迎来到小店。', voiceProfileId: voice.id, reservedSegments: 1,
+      productImage: '/uploads/fixture-transparent.png', productDesc: '红色商品', subtitle: { enabled: false }, lipSync: false, resolution: '540P' }, 70)
+    for (let i = 0; i < 1400 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const done = tasks.getTask(task.id)
+    assert.equal(done.status, 'success', done.error)
+    const calls = submissions.slice(before).map((item) => item.body.task)
+    assert.deepEqual(calls, ['t2i', 'i2av'])
+    assert.equal(done.result.productReference.usedImage, true)
+  } finally { await tts.deleteVoice(user, voice.id) }
+})
+
+test('audio-first digital human refunds unused reserved segments after measuring speech', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-refund','test','test',500)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '我的音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const text = '甲'.repeat(35)
+  try {
+    const task = tasks.createTask(user, 'human', { workflow: 'audio-first', text, voiceProfileId: voice.id, reservedSegments: 2, subtitle: { enabled: false }, lipSync: false, resolution: '540P' }, 140)
+    for (let i = 0; i < 700 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success', completed.error)
+    assert.equal(completed.points_cost, 70)
+    assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(user).ai_points, 430)
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM consumption_logs WHERE user_id = ? AND action = '未使用片段退款'").get(user).n, 1)
+  } finally { await tts.deleteVoice(user, voice.id) }
 })
 
 test('digital-human task uses the selected authorized voice and adds subtitles', async () => {
@@ -575,6 +962,34 @@ test('video analysis fails and refunds when a silent video cannot be OCRed', asy
   } finally { failOCR = false }
 })
 
+test('caption safety combines OCR with vision and treats uncertainty as unavailable', async () => {
+  const oldProvider = process.env.VISION_PROVIDER
+  const oldBase = process.env.VISION_DIRECT_BASE_URL
+  process.env.VISION_PROVIDER = 'direct'
+  process.env.VISION_DIRECT_BASE_URL = `http://127.0.0.1:${server.address().port}`
+  const { inspectVideoText } = await import('../src/services/videoTextCheck.js')
+  const opts = { ocr: async () => ({ lines: [] }) }
+  try {
+    visionOverlayStatus = 'present'
+    const detected = await inspectVideoText('/uploads/fixture.mp4', opts)
+    assert.equal(detected.status, 'text_detected')
+    assert.equal(detected.method, 'sampled_ocr_and_vision')
+    assert.equal(detected.visionSamples, 5)
+    visionOverlayStatus = 'uncertain'
+    assert.equal((await inspectVideoText('/uploads/fixture.mp4', opts)).status, 'unavailable')
+    visionOverlayStatus = 'absent'
+    assert.equal((await inspectVideoText('/uploads/fixture.mp4', opts)).status, 'clear')
+    const productLabel = { preferVisionSemantics: true, ocr: async () => ({ lines: [{ text: '商品标签', conf: 0.99, bbox: [10, 20, 180, 30] }] }) }
+    assert.equal((await inspectVideoText('/uploads/fixture.mp4', productLabel)).status, 'clear')
+    visionOverlayStatus = 'present'
+    assert.equal((await inspectVideoText('/uploads/fixture.mp4', productLabel)).status, 'text_detected')
+  } finally {
+    visionOverlayStatus = 'absent'
+    process.env.VISION_PROVIDER = oldProvider
+    if (oldBase === undefined) delete process.env.VISION_DIRECT_BASE_URL; else process.env.VISION_DIRECT_BASE_URL = oldBase
+  }
+})
+
 test('reference video generation fails and refunds when no reference text can be read', async () => {
   process.env.AI_REAL_ENABLED = 'true'
   const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('replica-failure','test','test',200)").run().lastInsertRowid
@@ -587,6 +1002,34 @@ test('reference video generation fails and refunds when no reference text can be
     assert.equal(db.prepare('SELECT ai_points FROM users WHERE id = ?').get(user).ai_points, 200)
     assert.equal(submissions.length, before)
   } finally { failOCR = false }
+})
+
+test('replica uses real sampled vision input when speech and OCR are unavailable', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('replica-vision','test','test',200)").run().lastInsertRowid
+  const oldProvider = process.env.VISION_PROVIDER
+  const oldBase = process.env.VISION_DIRECT_BASE_URL
+  const before = visionRequests.length
+  process.env.VISION_PROVIDER = 'direct'
+  process.env.VISION_DIRECT_BASE_URL = `http://127.0.0.1:${server.address().port}`
+  failOCR = true
+  try {
+    const task = tasks.createTask(user, 'replica', { videoUrl: '/uploads/fixture.mp4', prompt: '展示新画面', duration: 4, ratio: '9:16', resolution: '540P' }, 62)
+    for (let i = 0; i < 1000 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const complete = tasks.getTask(task.id)
+    assert.equal(complete.status, 'success', complete.error)
+    assert.match(complete.result.reference.visualSummary, /红色方块/)
+    assert.match(JSON.stringify(submissions.at(-1).body), /红色方块/)
+    assert.doesNotMatch(JSON.stringify(submissions.at(-1).body), /绝不复制旧字/)
+    assert.equal(visionRequests.length, before + 1)
+    const sent = visionRequests.at(-1).messages[1].content.filter((part) => part.type === 'image_url')
+    assert.equal(sent.length, 3)
+    assert.ok(sent.every((part) => part.image_url.url.startsWith('data:image/jpeg;base64,')))
+    assert.match(complete.result.warnings.join(' '), /少量抽样画面/)
+  } finally {
+    failOCR = false
+    process.env.VISION_PROVIDER = oldProvider
+    if (oldBase === undefined) delete process.env.VISION_DIRECT_BASE_URL; else process.env.VISION_DIRECT_BASE_URL = oldBase
+  }
 })
 
 test('historical demo and unverifiable outputs are labelled without altering stored records', () => {
@@ -777,8 +1220,28 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     } finally { clearTimeout(timeout); stopController.abort() }
     assert.equal((await (await fetch(`${base}/api/agent/generations`, { headers })).json()).code, 503)
     assert.equal((await (await fetch(`${base}/api/artifacts`, { headers })).json()).code, 503)
+    const humanDraft = await post('/create/human/script-draft', { topic: '白色杯子', details: '陶瓷材质', seconds: 15 })
+    assert.equal(humanDraft.code, 0)
+    assert.equal(humanDraft.data.content, '欢迎了解这款白色陶瓷杯。')
+    assert.match(chatRequests.at(-1).messages[0].content, /唯一允许的事实来源/)
+    assert.equal((await post('/create/human/script-draft', { topic: '', seconds: 15 })).code, 400)
+    assert.equal((await post('/create/human', { text: '甲'.repeat(36) })).code, 400)
+    assert.equal((await post('/create/human', { text: '甲'.repeat(19), resolution: '720P' })).code, 400)
     const images = await (await fetch(`${base}/api/material/list?type=image`, { headers })).json()
     assert.ok(images.data.list.some((entry) => entry.url === '/uploads/input.jpg'), JSON.stringify(images))
+    assert.equal(images.data.list.find((entry) => entry.url === '/uploads/input.jpg').canManage, true)
+    const memberId = db.prepare("INSERT INTO users (account,password,name,created_by) VALUES ('e2e-member',?,'member',?)").run(password, owner).lastInsertRowid
+    try {
+      const memberLogin = await (await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: 'e2e-member', password: 'only-for-isolated-test' }) })).json()
+      assert.equal(memberLogin.code, 0)
+      const memberHeaders = { Authorization: `Bearer ${memberLogin.data.token}`, 'Content-Type': 'application/json' }
+      const memberImages = await (await fetch(`${base}/api/material/list?type=image`, { headers: memberHeaders })).json()
+      const managerImage = memberImages.data.list.find((entry) => entry.url === '/uploads/input.jpg')
+      assert.equal(managerImage.canManage, false)
+      const denial = await (await fetch(`${base}/api/material/delete`, { method: 'POST', headers: memberHeaders, body: JSON.stringify({ ids: [managerImage.id] }) })).json()
+      assert.equal(denial.data.deleted, 0)
+      assert.equal(denial.data.denied, 1)
+    } finally { db.prepare('DELETE FROM users WHERE id = ?').run(memberId) }
     const memberStatus = await (await fetch(`${base}/api/charge/memberStatus`, { headers })).json()
     assert.equal(memberStatus.data.storage_used, 111)
     assert.equal(memberStatus.data.member_count, 1)
@@ -898,6 +1361,15 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
     const top = pixelAtY(20), bottom = pixelAtY(90)
     assert.ok(top[0] > 150, 'the picture above the mask remains visible')
     assert.ok(bottom[0] < 20 && bottom[1] < 20 && bottom[2] < 20, 'the lower band is visibly covered')
+    const whiteCover = await post('/voice/subtitles/create', { videoUrl: captionTask.result.videos[0].url, style: 'pure', coverMode: 'bottom20White', segments: [{ text: '新字幕', start: 0.5, end: 1.5 }] })
+    assert.equal(whiteCover.code, 0, whiteCover.message)
+    const whiteTask = await waitTask(whiteCover.data.id)
+    assert.equal(whiteTask.result.subtitle.coverMode, 'bottom20White')
+    assert.equal(whiteTask.result.videos[0].hasAudio, true)
+    const whiteFile = media.localMediaPath(whiteTask.result.videos[0].url)
+    const whiteFrame = spawnSync(media.FFMPEG, ['-v', 'error', '-ss', '0.2', '-i', whiteFile, '-vf', 'crop=2:2:4:90,scale=1:1,format=rgb24', '-frames:v', '1', '-f', 'rawvideo', 'pipe:1'])
+    assert.equal(whiteFrame.status, 0)
+    assert.ok([...whiteFrame.stdout].every((v) => v > 235), 'the lower band must be white')
     const balanceBeforeJoin = db.prepare('SELECT ai_points FROM users WHERE id = ?').get(owner).ai_points
     assert.equal((await post('/ai-mix/join', { videoUrls: ['/uploads/blue.mp4'] })).code, 400)
     assert.equal((await post('/ai-mix/join', { videoUrls: ['/uploads/blue.mp4', '/uploads/private-other.mp4'] })).code, 400)
@@ -1046,6 +1518,29 @@ test('isolated HTTP flow protects data and produces playable H3 and dubbing resu
       child.kill()
       await new Promise((resolve) => child.once('exit', resolve))
     }
+  }
+})
+
+test('deleted image cannot be resurrected by an in-flight search index write', async () => {
+  const { esClient, initES, indexDoc } = await import('../src/services/esService.js')
+  const cluster = esClient.cluster, indices = esClient.indices
+  const old = { health: cluster.health, exists: indices.exists, create: indices.create, index: esClient.index, delete: esClient.delete, real: process.env.AI_REAL_ENABLED }
+  cluster.health = async () => ({ status: 'green' })
+  indices.exists = async () => false
+  indices.create = async () => ({})
+  process.env.AI_REAL_ENABLED = 'false'
+  const id = db.prepare("INSERT INTO materials (name,type,url) VALUES ('delete-race','image','/uploads/race.jpg')").run().lastInsertRowid
+  let removed = false
+  esClient.index = async () => { db.prepare('DELETE FROM materials WHERE id = ?').run(id) }
+  esClient.delete = async (request) => { removed = request.id === String(id) }
+  try {
+    assert.equal(await initES(), true)
+    assert.equal(await indexDoc('materials', { id, name: 'delete-race', type: 'image', url: '/uploads/race.jpg' }), false)
+    assert.equal(removed, true)
+  } finally {
+    cluster.health = old.health; indices.exists = old.exists; indices.create = old.create
+    esClient.index = old.index; esClient.delete = old.delete
+    process.env.AI_REAL_ENABLED = old.real
   }
 })
 

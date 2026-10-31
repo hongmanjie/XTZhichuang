@@ -9,7 +9,9 @@ import { localMediaPath, probeMedia } from '../services/mediaTools.js'
 import { inspectStudioProduct } from '../services/studio.js'
 import { cutoutProduct } from '../services/cutout.js'
 import { indexTtsStatus } from '../services/indexTts.js'
+import { presetByVoiceId } from '../services/voicePresets.js'
 import { lipSyncStatus } from '../services/lipSync.js'
+import { HUMAN_MAX_TEXT_LENGTH, HUMAN_POINTS_PER_SEGMENT, humanReservedSegments } from '../services/humanSpec.js'
 import fs from 'fs'
 
 const router = express.Router()
@@ -233,19 +235,37 @@ router.post('/create/analysis', authRequired, asyncHandler(async (req, res) => {
 }))
 
 // ============ 百变数字人 ============
+// A draft is editable and is never sent to speech automatically.
+router.post('/create/human/script-draft', authRequired, asyncHandler(async (req, res) => {
+  const { topic, details = '', seconds = 15 } = req.body
+  if (typeof topic !== 'string' || !topic.trim() || topic.length > 120) return res.json(fail('请填写 1–120 字的主题或商品名称', 400))
+  if (typeof details !== 'string' || details.length > 600) return res.json(fail('创作要求不能超过 600 字', 400))
+  if (![10, 15, 30, 45].includes(Number(seconds))) return res.json(fail('请选择有效的目标时长', 400))
+  const system = '你是中文短视频口播文案助手。用户输入是唯一允许的事实来源。严格只陈述用户明确写出的属性和数字；绝不推测或补充商品的手感、重量、装饰、用途、使用场景、人群、功效、价格、品质、认证、销量或其他事实。不要把常识或想象当成用户事实。可以使用不涉及商品属性的问候、连接和结束语，但不要凑字数。只输出可直接朗读的中文正文，不写标题、列表、分镜或括号说明，不超过200字。'
+  const user = `主题或商品：${topic.trim()}\n用户明确给出的事实和要求：${details.trim() || '未提供更多事实'}\n目标时长约 ${Number(seconds)} 秒。如果事实不足以填满时长，可以更短；不确定的信息直接省略。`
+  try {
+    const content = String(await unifiedChat([{ role: 'system', content: system }, { role: 'user', content: user }], { temperature: 0.2, max_tokens: 600 })).trim()
+    if (!content || content.length > 2000) return res.json(fail('AI 返回的文案无效，请重试', 503))
+    return res.json(success({ content }, '文案已生成，请核对事实并修改'))
+  } catch (error) { return res.json(fail('AI 写稿未完成：' + error.message, 503)) }
+}))
+
 router.post('/create/human', authRequired, asyncHandler(async (req, res) => {
-  const { humanName, text, voice, voiceProfileId, count = 1, subtitle, firstFrame, sceneKey, sceneDesc, persona, resolution = '540P', lipSync = false } = req.body
+  const { humanName, text, voice, voiceProfileId, count = 1, subtitle, firstFrame, productImage, productDesc, sceneKey, sceneDesc, persona, resolution = '540P', lipSync = false } = req.body
   if (typeof text !== 'string' || !text.trim()) return res.json(fail('请输入口播文案', 400))
-  if (String(text).replace(/\s+/g, '').length > 35) return res.json(fail('数字人单段文案暂支持约 35 字以内，请缩短文案', 400))
+  if (String(text).length > HUMAN_MAX_TEXT_LENGTH) return res.json(fail(`数字人口播文案最多 ${HUMAN_MAX_TEXT_LENGTH} 字，请缩短文案`, 400))
   if (Number(count) !== 1) return res.json(fail('每次只能生成一条数字人视频', 400))
   if (!['540P', '720P'].includes(resolution)) return res.json(fail('请选择有效的视频清晰度', 400))
   if (voice && !voiceProfileId) return res.json(fail('旧版预设音色已停用，请选择自己的授权音色', 400))
+  if (!voiceProfileId && String(text).replace(/\s+/g, '').length > 35) return res.json(fail('超过 35 字的口播请先选择授权音色', 400))
+  if (!voiceProfileId && resolution === '720P' && String(text).replace(/\s+/g, '').length > 18) return res.json(fail('720P 超过 18 字请先选择音色，系统会自动分段生成', 400))
   if (typeof lipSync !== 'boolean') return res.json(fail('口型同步选项无效', 400))
   if (lipSync && !voiceProfileId) return res.json(fail('请先选择授权音色，再启用口型同步', 400))
   if (lipSync && (await lipSyncStatus()).available === false) return res.json(fail('口型同步服务暂不可用，请稍后重试或关闭同步', 503))
   if (voiceProfileId) {
-    if (!Number.isSafeInteger(Number(voiceProfileId)) || Number(voiceProfileId) < 1) return res.json(fail('音色参数无效', 400))
-    if (!db.prepare('SELECT id FROM voice_profiles WHERE id = ? AND owner_id = ?').get(Number(voiceProfileId), req.user.id)) return res.json(fail('请选择自己上传的音色', 400))
+    const preset = presetByVoiceId(voiceProfileId)
+    if (!preset && (!Number.isSafeInteger(Number(voiceProfileId)) || Number(voiceProfileId) < 1)) return res.json(fail('音色参数无效', 400))
+    if (!preset && !db.prepare('SELECT id FROM voice_profiles WHERE id = ? AND owner_id = ?').get(Number(voiceProfileId), req.user.id)) return res.json(fail('请选择自己上传的音色', 400))
     const speech = await indexTtsStatus()
     if (speech.available === false) return res.json(fail('配音服务暂时不可连接，请稍后重试', 503))
   }
@@ -256,7 +276,16 @@ router.post('/create/human', authRequired, asyncHandler(async (req, res) => {
     const path = localMediaPath(firstFrame)
     if ((!asset && !material) || !path || !fs.existsSync(path)) return res.json(fail('首帧不存在或无权使用', 400))
   }
-  if (req.user.ai_points < MODULES.human.point) {
+  if (productImage) {
+    const scope = teamCond(req.user.id)
+    const asset = db.prepare(`SELECT id FROM human_assets WHERE url = ? AND ${scope.clause}`).get(productImage, ...scope.args)
+    const material = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'image' AND ${scope.clause}`).get(productImage, ...scope.args)
+    const path = localMediaPath(productImage)
+    if ((!asset && !material) || !path || !fs.existsSync(path)) return res.json(fail('商品图不存在或无权使用', 400))
+  }
+  const reservedSegments = voiceProfileId ? humanReservedSegments(text, resolution) : 1
+  const pointCost = reservedSegments * HUMAN_POINTS_PER_SEGMENT
+  if (req.user.ai_points < pointCost) {
     return res.json(fail('AI点数不足，请联系管理员', 400))
   }
   // 字幕策略：enabled 默认开（两段式：无字生成 + 艺术字后叠加），style ∈ vivid/pure/violet
@@ -267,9 +296,11 @@ router.post('/create/human', authRequired, asyncHandler(async (req, res) => {
   // 场景约束创作链路：firstFrame（合成首帧）→ 图生视频；sceneKey/persona → prompt 约束
   const task = createTask(req.user.id, 'human', {
     humanName: String(humanName || '').slice(0, 80), text: text.trim(), voiceProfileId: voiceProfileId ? Number(voiceProfileId) : null, count, subtitle: sub, lipSync,
-    firstFrame: firstFrame || null, sceneKey: sceneKey || null, sceneDesc: sceneDesc || null, resolution,
+    workflow: voiceProfileId ? 'audio-first' : 'legacy', reservedSegments,
+    firstFrame: firstFrame || null, productImage: productImage || null, productDesc: String(productDesc || '').slice(0, 120),
+    sceneKey: sceneKey || null, sceneDesc: sceneDesc || null, resolution,
     persona: persona && typeof persona === 'object' ? persona : null,
-  }, MODULES.human.point)
+  }, pointCost)
   res.json(success(task))
 }))
 

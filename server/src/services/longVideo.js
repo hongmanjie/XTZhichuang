@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import fs from 'fs'
 import db from '../db.js'
+import { cleanupFiles } from '../utils/fileStore.js'
 import { chat, imageToJpegB64, mgVideoGen } from './aiProviders.js'
 import { h3FramesForDuration, h3Size } from './h3Spec.js'
 import { concatenateVideos, extractLastFrame, localMediaPath } from './mediaTools.js'
@@ -54,7 +55,7 @@ async function planSegments(taskId, params) {
   return db.prepare('SELECT * FROM long_video_segments WHERE task_id = ? ORDER BY position').all(taskId)
 }
 
-export async function generateLongVideo(taskId, params) {
+export async function generateLongVideo(taskId, params, { segmentsOnly = false, validateSegment = null, maxQualityRetries = 0 } = {}) {
   const segments = await planSegments(taskId, params)
   const refs = Array.isArray(params.refs) ? params.refs : []
   const first = refs.find((ref) => ref.role === 'first')?.url
@@ -98,9 +99,23 @@ export async function generateLongVideo(taskId, params) {
           db.prepare('UPDATE ai_tasks SET provider_task_id = ? WHERE id = ?').run(providerId, taskId)
         }).immediate(),
       })
-      previousUrl = out.videos[0].url
+      const candidateUrl = out.videos[0].url
+      const quality = validateSegment ? await validateSegment(candidateUrl, segment.position) : null
+      if (quality?.status === 'text_detected' && Number(segment.quality_attempts || 0) < maxQualityRetries) {
+        db.transaction(() => {
+          db.prepare("UPDATE long_video_segments SET status = 'pending', provider_task_id = NULL, idempotency_key = ?, quality_attempts = quality_attempts + 1, quality_check = NULL WHERE id = ?")
+            .run(crypto.randomUUID(), segment.id)
+          db.prepare('UPDATE ai_tasks SET provider_task_id = NULL, stage = ? WHERE id = ?')
+            .run(`第 ${index + 1} 段发现文字，正在重新生成`, taskId)
+        }).immediate()
+        cleanupFiles([candidateUrl])
+        index--
+        continue
+      }
+      previousUrl = candidateUrl
       db.transaction(() => {
-        db.prepare("UPDATE long_video_segments SET status = 'completed', result_url = ? WHERE id = ?").run(previousUrl, segment.id)
+        db.prepare("UPDATE long_video_segments SET status = 'completed', result_url = ?, quality_check = ? WHERE id = ?")
+          .run(previousUrl, quality ? JSON.stringify(quality) : null, segment.id)
         db.prepare('UPDATE ai_tasks SET provider_task_id = NULL WHERE id = ?').run(taskId)
       }).immediate()
     } catch (error) {
@@ -112,6 +127,7 @@ export async function generateLongVideo(taskId, params) {
   }
   db.prepare("UPDATE ai_tasks SET stage = '正在合成长视频' WHERE id = ?").run(taskId)
   const urls = db.prepare('SELECT result_url FROM long_video_segments WHERE task_id = ? ORDER BY position').all(taskId).map((row) => row.result_url)
+  if (segmentsOnly) return { urls }
   const video = await concatenateVideos(urls)
   return {
     title: 'AI长视频', desc: params.prompt.slice(0, 80), engine: 'real', provider: 'modelgate',

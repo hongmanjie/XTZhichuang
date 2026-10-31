@@ -11,7 +11,7 @@
 3. 在 `server` 目录运行 `npm run dev`，在 `client` 目录运行 `npm run dev`，通过前端开发服务器访问平台。
 4. 全新数据库没有默认用户；需要使用 `server/src/bootstrap-admin.js` 初始化管理员，具体说明见实施记录。不要在有业务数据的数据库上运行演示数据脚本 `seed.js`。
 
-前端生产构建使用 `cd client && npm run build`，后端测试使用 `cd server && npm test`。本机运行记录、数据库、上传素材和环境密钥均不在源码仓库内，需要在新环境单独配置或迁移。
+前端部署在网站根路径时使用 `cd client && npm run build`；部署到 `/xtzc/` 子路径时必须使用 `cd client && npm run build:xtzc`，否则页面刷新和直达链接会出现 404。后端测试使用 `cd server && npm test`。本机运行记录、数据库、上传素材和环境密钥均不在源码仓库内，需要在新环境单独配置或迁移。
 
 ## Linux 部署(192.168.86.107)
 

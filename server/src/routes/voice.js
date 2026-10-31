@@ -7,6 +7,7 @@ import { success, fail, asyncHandler } from '../utils/response.js'
 import { teamCond } from '../utils/teamScope.js'
 import { localMediaPath, probeMedia } from '../services/mediaTools.js'
 import { uploadVoice, deleteVoice, indexTtsStatus, ttsTextLimit } from '../services/indexTts.js'
+import { listPresetVoices, presetByVoiceId } from '../services/voicePresets.js'
 import { createTask } from '../services/aiEngine.js'
 import { splitScript, SUBTITLE_STYLES, SUBTITLE_COVER_MODES, validateSubtitleSegments } from '../services/subtitleBurn.js'
 import { SUBTITLE_TRANSCRIBE_POINTS } from '../services/subtitleTranscription.js'
@@ -68,8 +69,8 @@ router.post('/voice/subtitles/create', authRequired, asyncHandler(async (req, re
 }))
 
 router.get('/voice/profiles', authRequired, (req, res) => {
-  const list = db.prepare('SELECT id, name, created_at FROM voice_profiles WHERE owner_id = ? ORDER BY id DESC').all(req.user.id)
-  res.json(success(list))
+  const mine = db.prepare('SELECT id, name, created_at FROM voice_profiles WHERE owner_id = ? ORDER BY id DESC').all(req.user.id)
+  res.json(success([...listPresetVoices(), ...mine]))
 })
 
 router.post('/voice/profiles', authRequired, upload.single('audio'), asyncHandler(async (req, res) => {
@@ -91,7 +92,7 @@ router.post('/voice/dub', authRequired, asyncHandler(async (req, res) => {
   if (typeof text !== 'string' || !text.trim() || text.length > ttsTextLimit()) return res.json(fail(`请输入 1–${ttsTextLimit()} 字的配音文案`, 400))
   if (!['replace', 'mix'].includes(mode) || !Number.isFinite(Number(speed)) || Number(speed) < 0.5 || Number(speed) > 2 || !['zh', 'en', 'ja', 'es', 'ar', 'zhen'].includes(lang)) return res.json(fail('配音参数无效', 400))
   const voice = db.prepare('SELECT id FROM voice_profiles WHERE id = ? AND owner_id = ?').get(Number(voiceId), req.user.id)
-  if (!voice) return res.json(fail('请选择自己上传的音色', 400))
+  if (!voice && !presetByVoiceId(voiceId)) return res.json(fail('音色不存在或无权使用', 400))
   const scope = teamCond(req.user.id)
   const material = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'video' AND ${scope.clause}`).get(videoUrl, ...scope.args)
   const file = localMediaPath(videoUrl)

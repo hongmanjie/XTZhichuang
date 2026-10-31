@@ -171,6 +171,7 @@ export const api = {
   createAnalysis: (data: any) => post('/create/analysis', data),
   createVideoAnalysis: (data: any) => post('/video-analysis/create', data),
   createHuman: (data: any) => post('/create/human', data),
+  createHumanDraft: (data: { topic: string; details: string; seconds: number }) => post<{ content: string }>('/create/human/script-draft', data),
   tasks: (params?: any) => get('/task/list', { params }),
   taskDetail: (id: number) => get('/task/detail', { params: { id } }),
   retryTask: (data: any) => post('/task/retry', data),

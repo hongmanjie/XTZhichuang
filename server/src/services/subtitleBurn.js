@@ -52,6 +52,16 @@ export const SUBTITLE_STYLES = {
     shadowW: 1,
     fontRatio: 0.048,
   },
+  darkOnLight: {
+    name: '浅底深字',
+    desc: '深色字 · 浅色描边',
+    primary: '&H00000000',
+    outline: '&H00FFFFFF',
+    back: '&H90000000',
+    outlineW: 2.4,
+    shadowW: 0,
+    fontRatio: 0.048,
+  },
   violet: {
     name: '品牌紫',
     desc: '白字紫边 · 兴图智创风格',
@@ -64,7 +74,7 @@ export const SUBTITLE_STYLES = {
   },
 }
 
-export const SUBTITLE_COVER_MODES = Object.freeze({ none: 0, bottom15: 0.15, bottom20: 0.20, bottom25: 0.25 })
+export const SUBTITLE_COVER_MODES = Object.freeze({ none: 0, bottom15: 0.15, bottom20: 0.20, bottom25: 0.25, bottom15White: 0.15, bottom20White: 0.20, bottom25White: 0.25 })
 export const DEFAULT_SUBTITLE_STYLE = 'vivid'
 
 const FONT_NAME = process.env.SUBTITLE_FONT_NAME || (process.platform === 'win32' ? 'Microsoft YaHei' : 'Noto Sans CJK SC')
@@ -292,7 +302,8 @@ export async function burnSubtitles(videoUrl, { text, segments: requestedSegment
         seg.end = Math.min(seg.end, effectiveDur)
       }
       assPath = path.join(os.tmpdir(), `subs_${Date.now()}_${Math.round(Math.random() * 1e6)}.ass`)
-      fs.writeFileSync(assPath, buildAss(segments, style, { width, height }), 'utf8')
+      const effectiveStyle = coverMode.endsWith('White') && style === 'pure' ? 'darkOnLight' : style
+      fs.writeFileSync(assPath, buildAss(segments, effectiveStyle, { width, height }), 'utf8')
     }
 
     const stamp = `${Date.now()}_${Math.round(Math.random() * 1e4)}`
@@ -309,7 +320,10 @@ export async function burnSubtitles(videoUrl, { text, segments: requestedSegment
 
     let vchain = []
     const coverHeight = SUBTITLE_COVER_MODES[coverMode]
-    if (coverHeight) vchain.push(`drawbox=x=0:y=ih*(1-${coverHeight}):w=iw:h=ih*${coverHeight}:color=black:t=fill`)
+    if (coverHeight) {
+      const color = coverMode.endsWith('White') ? 'white' : 'black'
+      vchain.push(`drawbox=x=0:y=ih*(1-${coverHeight}):w=iw:h=ih*${coverHeight}:color=${color}:t=fill`)
+    }
     if (assFilter) vchain.push(assFilter)
     // 视频短于配音：末帧冻结补齐
     if (audioPath && audioDur > videoDur + 0.05) {

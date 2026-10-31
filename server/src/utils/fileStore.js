@@ -39,6 +39,8 @@ function isReferenced(url, exclude = {}) {
   checks.push(db.prepare("SELECT 1 FROM ai_tasks WHERE params LIKE ? AND status IN ('pending', 'running', 'reconciling') LIMIT 1").get(like))
   checks.push(db.prepare('SELECT 1 FROM long_video_segments WHERE result_url = ? OR first_frame_url = ? LIMIT 1').get(url, url))
   checks.push(db.prepare('SELECT 1 FROM super_res_segments WHERE input_url = ? OR result_url = ? LIMIT 1').get(url, url))
+  checks.push(db.prepare('SELECT 1 FROM human_lip_segments WHERE result_url = ? LIMIT 1').get(url))
+  checks.push(db.prepare('SELECT 1 FROM human_product_workflows WHERE background_url = ? OR cutout_url = ? OR first_frame_url = ? LIMIT 1').get(url, url, url))
   checks.push(db.prepare('SELECT 1 FROM highlight_clips WHERE video_url = ? OR cover = ? LIMIT 1').get(url, url))
   checks.push(db.prepare('SELECT 1 FROM mix_projects WHERE timeline LIKE ? OR cover = ? LIMIT 1').get(url, url))
   return checks.some(Boolean)
