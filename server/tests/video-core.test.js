@@ -38,6 +38,7 @@ let holdNextChat = false
 let heldChatClosed = false
 let holdNextVideo = false
 let failOCR = false
+let ocrText = ''
 let failSpeech = false
 let asrErrorStatus = 0
 let asrCalls = 0
@@ -78,7 +79,7 @@ before(async () => {
         if (payload.model === 'PPOCR-v5-Server') {
           if (failOCR) { res.writeHead(503); res.end('{}'); return }
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ result: { lines: [{ text: '识别出的画面文字' }] } }))
+          res.end(JSON.stringify({ result: { lines: ocrText ? [{ text: ocrText }] : [] } }))
           return
         }
         if (payload.model === 'IndexTTS-2.5') {
@@ -382,6 +383,30 @@ test('IndexTTS voice upload and replacement produce a real audio track and enfor
   assert.equal(db.prepare('SELECT COUNT(*) n FROM voice_profiles WHERE id = ?').get(voice.id).n, 0)
 })
 
+test('automatic subtitles stop when sampled frames contain text or OCR is unavailable', async () => {
+  const owner = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('text-guard','test','test',100)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(owner, '测试音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  const params = { videoUrl: '/uploads/fixture.mp4', voiceId: voice.id, text: '新的配音字幕', speed: 1, lang: 'zh', mode: 'replace', subtitle: true }
+  try {
+    ocrText = '已有字幕'
+    const detected = await tts.dubVideo(owner, params)
+    assert.equal(detected.qualityCheck.status, 'text_detected')
+    assert.equal(detected.subtitle.burned, false)
+    assert.match(detected.warnings.join(' '), /暂停添加新字幕/)
+    assert.equal((await media.probeMedia(media.localMediaPath(detected.videos[0].url))).hasAudio, true)
+    ocrText = ''
+    failOCR = true
+    const unavailable = await tts.dubVideo(owner, params)
+    assert.equal(unavailable.qualityCheck.status, 'unavailable')
+    assert.equal(unavailable.subtitle.burned, false)
+    assert.match(unavailable.warnings.join(' '), /检查未完成/)
+  } finally {
+    ocrText = ''
+    failOCR = false
+    await tts.deleteVoice(owner, voice.id)
+  }
+})
+
 test('gateway speech uses the enrolled voice even when direct voice management is unavailable', async () => {
   const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('gateway-voice','test','test',100)").run().lastInsertRowid
   const voice = await tts.uploadVoice(user, '网关音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
@@ -435,6 +460,13 @@ test('speech subtitle drafts preserve valid provider timing and mark fallback es
   assert.throws(() => subtitleDraftFromSpeech({ text: '' }, 8), /未识别到语音/)
 })
 
+test('digital-human generation prompt does not expose the script as on-screen text', () => {
+  const prompt = tasks.buildHumanScenePrompt({ text: '欢迎来到小店', humanName: '主播' })
+  assert.doesNotMatch(prompt, /欢迎来到小店/)
+  assert.match(prompt, /自然说话/)
+  assert.match(prompt, /字幕/)
+})
+
 test('digital-human task uses the selected authorized voice and adds subtitles', async () => {
   process.env.AI_REAL_ENABLED = 'true'
   const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human','test','test',200)").run().lastInsertRowid
@@ -452,6 +484,22 @@ test('digital-human task uses the selected authorized voice and adds subtitles',
   assert.equal(completed.result.subtitle.enabled, true)
   assert.deepEqual(completed.result.warnings, [])
   assert.equal((await media.probeMedia(media.localMediaPath(completed.result.videos[0].url))).hasAudio, true)
+})
+
+test('digital-human subtitle fallback does not bypass the text check', async () => {
+  const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('human-text-guard','test','test',200)").run().lastInsertRowid
+  const voice = await tts.uploadVoice(user, '测试音色', fs.readFileSync(path.join(temp, 'sample.wav')), 'sample.wav')
+  try {
+    ocrText = '旧画面字幕'
+    const task = tasks.createTask(user, 'human', { text: '测试配音', voiceProfileId: voice.id, subtitle: { enabled: true } }, 70)
+    for (let i = 0; i < 600 && !['success', 'failed', 'reconciling'].includes(tasks.getTask(task.id).status); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+    const completed = tasks.getTask(task.id)
+    assert.equal(completed.status, 'success')
+    assert.equal(completed.result.qualityCheck.status, 'text_detected')
+    assert.equal(completed.result.voice.dubbed, true)
+    assert.equal(completed.result.subtitle.enabled, false)
+    assert.match(completed.result.warnings.join(' '), /暂停添加新字幕/)
+  } finally { ocrText = ''; await tts.deleteVoice(user, voice.id) }
 })
 
 test('digital-human task retains generated video and warns if voice synthesis fails', async () => {
@@ -494,6 +542,7 @@ test('video generation and dubbing use separate concurrency limits', async () =>
 })
 
 test('video analysis uses real extraction paths and reports recognized audio and frame text', async () => {
+  ocrText = '识别出的画面文字'
   process.env.AI_REAL_ENABLED = 'true'
   const user = db.prepare("INSERT INTO users (account,password,name,ai_points) VALUES ('analysis','test','test',100)").run().lastInsertRowid
   const task = tasks.createTask(user, 'videoAnalysis', { videoUrl: '/uploads/with-audio.mp4' }, 50)
@@ -510,6 +559,7 @@ test('video analysis uses real extraction paths and reports recognized audio and
   assert.ok(completed.result.analysis.frames.every((frame) => frame.text === '识别出的画面文字'))
   assert.ok(completed.result.analysis.sceneChanges.times.some((time) => Math.abs(time - 8) < 0.15), 'detect the actual red-to-blue cut')
   assert.match(completed.result.analysis.limitation, /未理解/)
+  ocrText = ''
 })
 
 test('video analysis fails and refunds when a silent video cannot be OCRed', async () => {
@@ -1018,5 +1068,57 @@ test('incompatible Elasticsearch dimensions never delete existing indices', asyn
     indices.exists = original.exists
     indices.getFieldMapping = original.getFieldMapping
     indices.delete = original.delete
+  }
+})
+
+test('red Elasticsearch cluster is reported unavailable and runtime failures downgrade', async () => {
+  const { esClient, initES, isESAvailable, refreshESHealth } = await import('../src/services/esService.js')
+  const cluster = esClient.cluster
+  const indices = esClient.indices
+  const original = { health: cluster.health, exists: indices.exists, create: indices.create }
+  cluster.health = async () => ({ status: 'red' })
+  try {
+    assert.equal(await initES(), false)
+    assert.equal(isESAvailable(), false)
+    cluster.health = async () => ({ status: 'green' })
+    indices.exists = async () => false
+    indices.create = async () => ({})
+    assert.equal(await initES(), true)
+    cluster.health = async () => ({ status: 'red' })
+    assert.equal(await refreshESHealth(), false)
+    assert.equal(isESAvailable(), false)
+  } finally {
+    cluster.health = original.health
+    indices.exists = original.exists
+    indices.create = original.create
+  }
+})
+
+test('interrupted lip-sync tasks never resubmit automatically after restart', () => {
+  const owner = db.prepare("INSERT INTO users (account,password,name) VALUES ('lip-recovery','test','test')").run().lastInsertRowid
+  const insert = db.prepare("INSERT INTO ai_tasks (task_no,module,status,stage,params,owner_id,provider_task_id,idempotency_key) VALUES (?,?, 'running','正在同步口型','{}',?,?,?)")
+  const voice = insert.run('lip-voice-recovery', 'voiceDub', owner, null, null).lastInsertRowid
+  const human = insert.run('lip-human-recovery', 'human', owner, 'h3-job', 'h3-key').lastInsertRowid
+  tasks.recoverAiTasks()
+  for (const id of [voice, human]) {
+    const task = db.prepare('SELECT status,stage,error FROM ai_tasks WHERE id = ?').get(id)
+    assert.equal(task.status, 'reconciling')
+    assert.equal(task.stage, '口型状态待核对')
+    assert.match(task.error, /不自动重复提交/)
+    assert.throws(() => tasks.retryTask(id), /上游状态未确认/)
+  }
+})
+
+test('interrupted speech and its post-processing do not resubmit upstream work', () => {
+  const owner = db.prepare("INSERT INTO users (account,password,name) VALUES ('speech-recovery','test','test')").run().lastInsertRowid
+  const insert = db.prepare("INSERT INTO ai_tasks (task_no,module,status,stage,params,owner_id,provider_task_id,idempotency_key) VALUES (?,?,'running',?,?,?,?,?)")
+  const voice = insert.run('speech-voice-recovery', 'voiceDub', '正在抽帧检查画面文字', '{}', owner, null, null).lastInsertRowid
+  const human = insert.run('speech-human-recovery', 'human', '正在添加字幕', '{"voiceProfileId":1}', owner, 'h3-job', 'h3-key').lastInsertRowid
+  tasks.recoverAiTasks()
+  for (const id of [voice, human]) {
+    const task = db.prepare('SELECT status,stage FROM ai_tasks WHERE id = ?').get(id)
+    assert.equal(task.status, 'reconciling')
+    assert.equal(task.stage, '配音状态待核对')
+    assert.throws(() => tasks.retryTask(id), /配音上游状态未确认/)
   }
 })

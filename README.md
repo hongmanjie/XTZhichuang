@@ -54,3 +54,20 @@ docker compose --env-file .env.dev -f docker-compose.dev.yml up -d
 仅在可信内网需要其他机器访问时，显式设置 `DEV_BIND_HOST`。首次使用空数据库时，可通过 `BOOTSTRAP_ADMIN_ACCOUNT` 和至少 12 字符的 `BOOTSTRAP_ADMIN_PASSWORD` 运行 `server/src/bootstrap-admin.js` 创建管理员；不要把真实配置、数据库或测试媒体提交到仓库。开发容器挂载本目录的 `server/src` 和构建后的 `client/dist`，修改后需要重启应用；前端修改还需要重新构建。
 
 `tools/deploy-107.mjs` 是旧线上环境的更新脚本，独立测试环境不要使用该脚本。
+
+## 多模态向量与口型模型
+
+向量适配器使用 `EMBEDDING_PROVIDER=modelgate` 或 `direct`。直连时设置 `EMBEDDING_DIRECT_BASE_URL` 和 `EMBEDDING_DIRECT_MODEL`；文字和本地图片均会编码，素材文字搜索可结合图片内容。不同来源默认使用独立 ES 索引，切换后需要将 SQLite 中已有素材补入当前索引：
+
+```bash
+docker compose --env-file .env.dev -f docker-compose.dev.yml exec app node /app/server/src/rebuild-search.js
+```
+
+该脚本只创建缺失文档，不删除已有索引；如果部分向量化失败，需要检查日志并在合适的维护窗口使用新索引重新构建。当前网关适配器只支持文本向量，网关开放图片接口后还需要接入并验证该协议，不能把图片数据伪装成文本。
+
+口型同步通过 `LIPSYNC_PROVIDER=direct` 和 `LIPSYNC_DIRECT_BASE_URL` 接入内网 LatentSync。在“配音与口型”和“数字人”中可选开启，建议使用不超过 30 秒的单人正面画面。模型处理可能较慢，失败时保留普通配音并显示警告。网关的口型接口协议尚未提供，后续需要增加网关适配器；设置成其他提供方不会假装已经接通。
+
+测试 ES 使用 `.dev-data/elasticsearch`，不通过宿主机端口暴露。该目录属于运行数据，不能提交；迁移前的旧测试卷不会自动删除。应用业务数据库和上传文件仍是独立卷，使用真实模型时会占用共享模型服务的算力。
+
+
+配音和数字人任务会抽取少量画面并调用 OCR 检查可能已有的文字；发现疑似文字或检查失败时暂停自动加字幕，并保留可供检查的原画面。数字人生成提示不直接包含口播文案，以降低模型绘制字幕的概率。采样可能漏检或误判，不能保证完全无字；已有画面文字不会被无痕去除。

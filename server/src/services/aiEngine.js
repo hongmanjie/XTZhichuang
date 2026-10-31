@@ -17,10 +17,11 @@ import { prepareReferenceVideo } from './replica.js'
 import { concatenateVideos, localMediaPath, probeMedia } from './mediaTools.js'
 import { enhanceVideo } from './superResolution.js'
 import { transcribeSubtitles } from './subtitleTranscription.js'
+import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
 
-// 无文字画面约束：视频生成模型第一段出片时禁绝一切画面文字/字幕，
-// 字幕由 subtitleBurn 二段叠加，杜绝 AI 生成字幕的变形、乱码、闪烁问题
-const NO_TEXT_CONSTRAINT = '尽量避免画面文字、字幕、字母、数字、水印和贴纸，人物嘴部动作自然，画面保持干净'
+// 尽量让模型生成无字画面；生成模型可能忽略提示，后续抽帧检查仍需人工复核。
+// 清晰字幕由字幕服务后期叠加，不能移除原画面中的文字。
+const NO_TEXT_CONSTRAINT = '画面保持简洁干净，背景和人物周围不出现任何字幕、字母、数字、角标、台标、文字标识、贴纸或图形叠加，人物嘴部动作自然'
 
 // ============================================================
 // 数字人创作链路：模块化场景约束
@@ -81,7 +82,7 @@ export function buildHumanScenePrompt({ text, sceneKey, sceneDesc, persona, huma
   const parts = [personaPart]
   if (humanName) parts.push(`主播形象风格：${String(humanName).slice(0, 40)}`)
   if (scene) parts.push(`身处${scene}`)
-  if (text) parts.push(`正在面对镜头口播讲述：「${String(text).slice(0, 120)}」`)
+  if (text) parts.push('人物正面面对镜头自然说话，神情亲切，嘴部动作清晰')
   parts.push('真实摄影质感，商业布光，主体清晰')
   parts.push(NO_TEXT_CONSTRAINT)
   return parts.join('。')
@@ -244,8 +245,9 @@ function startTask(task) {
         const current = db.prepare('SELECT * FROM ai_tasks WHERE id = ?').get(taskId)
         if (!current || current.status !== 'running') return
         if (['MG_TASK_UNCERTAIN', 'MG_SUBMIT_UNCERTAIN', 'TTS_UNCERTAIN', 'ASR_UNCERTAIN'].includes(err.code) || (current.provider_task_id && !['MG_TASK_FAILED', 'MG_TASK_CANCELLED', 'MG_RESULT_INVALID'].includes(err.code))) {
-          db.prepare("UPDATE ai_tasks SET status = 'reconciling', error = ?, stage = '上游状态待核对', provider_task_id = COALESCE(provider_task_id, ?) WHERE id = ?")
-            .run(String(err.message).slice(0, 300), err.taskId || null, taskId)
+          const stage = err.code === 'TTS_UNCERTAIN' ? '配音状态待核对' : '上游状态待核对'
+          db.prepare("UPDATE ai_tasks SET status = 'reconciling', error = ?, stage = ?, provider_task_id = COALESCE(provider_task_id, ?) WHERE id = ?")
+            .run(String(err.message).slice(0, 300), stage, err.taskId || null, taskId)
         } else {
           refundReserved(current)
           const status = err.code === 'MG_TASK_CANCELLED' ? 'canceled' : 'failed'
@@ -260,6 +262,12 @@ function startTask(task) {
 // Single-server recovery: an upstream task ID is resumed; uncertain submissions are never repeated.
 export function recoverAiTasks() {
   db.transaction(() => {
+    db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '口型状态待核对', error = '服务重启时口型同步可能仍在上游执行，请先核对，不自动重复提交' WHERE status = 'running' AND stage = '正在同步口型'").run()
+    db.prepare(`UPDATE ai_tasks SET status = 'reconciling', stage = '配音状态待核对', error = '服务重启时配音或后处理可能已执行，请先核对，不自动重复提交'
+      WHERE status = 'running' AND (
+        (module = 'voiceDub' AND stage IN ('正在合成配音', '正在抽帧检查画面文字', '正在添加字幕'))
+        OR (module = 'human' AND stage IN ('正在合成配音', '正在添加字幕') AND json_valid(params) AND json_extract(params, '$.voiceProfileId') IS NOT NULL)
+      )`).run()
     db.prepare("UPDATE ai_tasks SET status = 'pending', stage = '恢复查询上游任务' WHERE status = 'running' AND provider_task_id IS NOT NULL AND idempotency_key IS NOT NULL").run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '拼接中断，可重新尝试', error = '服务重启时本地拼接中断，请重新尝试' WHERE status = 'running' AND module = 'videoJoin'").run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '字幕处理中断，可重新尝试', error = '服务重启时字幕处理未完成，请重新尝试' WHERE status = 'running' AND module = 'subtitleEdit'").run()
@@ -279,18 +287,23 @@ async function postProcess(module, params, result, context) {
   if (module !== 'human' || !result?.videos?.length || !params.text) return result
   const wantsSubtitle = params.subtitle?.enabled !== false
   const voiceId = params.voiceProfileId || null
-  if (!wantsSubtitle && !voiceId) return result
   const style = params.subtitle?.style || DEFAULT_SUBTITLE_STYLE
   const warnings = [...(result.warnings || [])]
   let dubbedCount = 0
   let burnedCount = 0
   for (const v of result.videos) {
     let subtitleBurned = false
+    const textCheck = await inspectVideoText(v.url, { includeTop: true, onStage: context.onStage })
+    v.qualityCheck = textCheck
+    result.qualityCheck = textCheck
+    const checkWarning = textCheckWarning(textCheck, wantsSubtitle)
+    if (checkWarning) warnings.push(checkWarning)
     if (voiceId) {
       context.onStage('正在合成配音')
       try {
-        const dubbed = await dubVideo(context.ownerId, { videoUrl: v.url, voiceId, text: params.text, mode: 'replace', speed: 1, lang: 'zh', subtitle: wantsSubtitle })
-        Object.assign(v, dubbed.videos[0], { dubbed: true, subtitleBurned: !!dubbed.subtitle?.burned })
+        const dubbed = await dubVideo(context.ownerId, { videoUrl: v.url, voiceId, text: params.text, mode: 'replace', speed: 1, lang: 'zh', subtitle: wantsSubtitle, lipSync: params.lipSync === true }, { ...context, frameTextCheck: textCheck, textCheckWarningHandled: true })
+        Object.assign(v, dubbed.videos[0], { dubbed: true, subtitleBurned: !!dubbed.subtitle?.burned, lipSynced: !!dubbed.lipSync?.applied })
+        warnings.push(...(dubbed.warnings || []))
         dubbedCount++
         subtitleBurned = !!dubbed.subtitle?.burned
       } catch (error) {
@@ -298,7 +311,7 @@ async function postProcess(module, params, result, context) {
         warnings.push(`配音未完成，已保留生成画面：${error.message}`)
       }
     }
-    if (wantsSubtitle && !subtitleBurned) {
+    if (wantsSubtitle && !subtitleBurned && textCheck.status === 'clear') {
       context.onStage('正在添加字幕')
       try {
         Object.assign(v, await burnSubtitles(v.url, { text: params.text, style, burn: true }))
@@ -312,6 +325,8 @@ async function postProcess(module, params, result, context) {
   if (wantsSubtitle && !burnedCount) warnings.push('字幕叠加未完成')
   result.subtitle = wantsSubtitle ? { enabled: burnedCount > 0, burnedCount, timing: 'estimated' } : { enabled: false }
   result.voice = voiceId ? { provider: 'IndexTTS', dubbed: dubbedCount > 0 } : null
+  result.lipSync = { requested: params.lipSync === true, applied: params.lipSync === true && result.videos.some((video) => video.lipSynced === true) }
+  if (params.lipSync && !dubbedCount) warnings.push('配音未完成，口型同步也未执行')
   result.warnings = warnings
   return result
 }
@@ -397,7 +412,7 @@ async function finishTask(taskId, result, module) {
 
 // ---------- 真实AI执行器 ----------
 async function runRealTask(module, params, tpl, context) {
-  if (module === 'voiceDub') return dubVideo(context.ownerId, params)
+  if (module === 'voiceDub') return dubVideo(context.ownerId, params, context)
   if (module === 'videoJoin') {
     context.onStage('正在按顺序拼接视频')
     const video = await concatenateVideos(params.videoUrls)
@@ -612,6 +627,8 @@ export function retryTask(id) {
     const task = db.prepare('SELECT * FROM ai_tasks WHERE id = ?').get(id)
     if (!task) throw new Error('任务不存在')
     if (task.status === 'reconciling') {
+      if (task.stage === '口型状态待核对') throw new Error('口型同步上游状态未确认，请联系管理员核对后再创建任务')
+      if (task.stage === '配音状态待核对') throw new Error('配音上游状态未确认，请联系管理员核对后再创建任务')
       if (task.module === 'replica' && !task.provider_task_id) {
         const phase = JSON.parse(task.params || '{}').referencePhase
         if (phase === 'analyzing' || phase === 'ready') {

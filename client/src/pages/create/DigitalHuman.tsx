@@ -21,6 +21,8 @@ export default function DigitalHuman() {
   const [humanName, setHumanName] = useState('')
   const [script, setScript] = useState('')
   const [subtitle, setSubtitle] = useState(true)
+  const [lipSync, setLipSync] = useState(false)
+  const [lipSyncAvailable, setLipSyncAvailable] = useState<boolean | null>(null)
   const [resolution, setResolution] = useState('540P')
   const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -36,6 +38,13 @@ export default function DigitalHuman() {
     const timer = setInterval(load, 6000)
     return () => clearInterval(timer)
   }, [load])
+
+  useEffect(() => {
+    const check = () => api.voiceStatus().then((status) => setLipSyncAvailable(status.lipSyncAvailable)).catch(() => setLipSyncAvailable(null))
+    check()
+    const timer = setInterval(check, 30000)
+    return () => clearInterval(timer)
+  }, [])
 
   const uploadImage = async (file?: File) => {
     if (!file) return
@@ -57,7 +66,7 @@ export default function DigitalHuman() {
     setSubmitting(true)
     try {
       await api.createHuman({ text: script.trim(), firstFrame: firstFrame || null, voiceProfileId: voiceId || null,
-        humanName: humanName.trim(), sceneKey: sceneKey || null, count: 1, resolution, subtitle: { enabled: subtitle, style: 'pure' } })
+        humanName: humanName.trim(), sceneKey: sceneKey || null, count: 1, resolution, subtitle: { enabled: subtitle, style: 'pure' }, lipSync })
       message.success('任务已加入队列')
       load()
     } catch {} finally { setSubmitting(false) }
@@ -89,10 +98,12 @@ export default function DigitalHuman() {
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium">4. 配音和字幕（可选）</label>
-            <Select className="w-full" placeholder="选择我的授权音色" allowClear value={voiceId} onChange={setVoiceId} options={voices.map((voice) => ({ value: voice.id, label: voice.name }))} />
+            <Select className="w-full" placeholder="选择我的授权音色" allowClear value={voiceId} onChange={(value) => { setVoiceId(value); if (!value) setLipSync(false) }} options={voices.map((voice) => ({ value: voice.id, label: voice.name }))} />
             <p className="mt-2 text-xs leading-5 text-gray-500">不选音色时不会合成配音。可在 <Link to="/voice" className="text-purple-600">配音与口型</Link> 添加音色。</p>
             <Checkbox className="!mt-2" checked={subtitle} onChange={(event) => setSubtitle(event.target.checked)}>添加字幕</Checkbox>
-            <p className="mt-2 text-xs leading-5 text-gray-500">字幕时间按文案估算，已有画面文字不会被移除。口型同步暂未接入，人物嘴型不会自动与配音对齐。配音失败或超过视频时长时会保留画面，可在配音页面缩短文案或调整语速后重试。</p>
+            <Checkbox className="!mt-2 !ml-4" checked={lipSync} disabled={!voiceId || (lipSyncAvailable === false && !lipSync)} onChange={(event) => setLipSync(event.target.checked)}>同步人物口型</Checkbox>
+            {lipSyncAvailable === false && <p className="mt-1 text-xs text-amber-700">口型同步服务暂不可用，可关闭后继续生成。</p>}
+            <p className="mt-2 text-xs leading-5 text-gray-500">口型同步需要已选音色，清晰正面的人物效果更好，处理可能较慢；失败时保留生成画面或普通配音并显示提示。系统会抽帧检查画面文字，发现疑似文字或检查失败时暂停添加字幕；抽帧可能漏检或误判，请检查成片。已有画面文字不会自动移除。</p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium">5. 清晰度</label>
@@ -101,7 +112,7 @@ export default function DigitalHuman() {
             ]} />
           </div>
           <div className="flex items-center justify-between text-sm text-gray-500"><span>预计消耗</span><span>70 点 / 条</span></div>
-          <Button type="primary" size="large" block loading={submitting} disabled={uploading} onClick={submit}>生成数字人视频</Button>
+          <Button type="primary" size="large" block loading={submitting} disabled={uploading || (lipSync && lipSyncAvailable === false)} onClick={submit}>生成数字人视频</Button>
         </div>
         <div className="rounded-2xl bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">我的数字人任务</h2><button onClick={load} className="text-xs text-purple-600"><ReloadOutlined /> 刷新</button></div>
@@ -112,7 +123,7 @@ export default function DigitalHuman() {
               {!!task.result.warnings?.length && <p className="mt-2 text-xs leading-5 text-amber-600">{task.result.warnings.join('；')}</p>}
             </> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}
             {task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}
-            {(task.status === 'failed' || task.status === 'reconciling') && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}
+            {(task.status === 'failed' || (task.status === 'reconciling' && !['口型状态待核对', '配音状态待核对'].includes(task.stage || ''))) && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}
           </div>)}</div>}
         </div>
       </div>

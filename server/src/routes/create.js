@@ -9,6 +9,7 @@ import { localMediaPath, probeMedia } from '../services/mediaTools.js'
 import { inspectStudioProduct } from '../services/studio.js'
 import { cutoutProduct } from '../services/cutout.js'
 import { indexTtsStatus } from '../services/indexTts.js'
+import { lipSyncStatus } from '../services/lipSync.js'
 import fs from 'fs'
 
 const router = express.Router()
@@ -233,12 +234,15 @@ router.post('/create/analysis', authRequired, asyncHandler(async (req, res) => {
 
 // ============ 百变数字人 ============
 router.post('/create/human', authRequired, asyncHandler(async (req, res) => {
-  const { humanName, text, voice, voiceProfileId, count = 1, subtitle, firstFrame, sceneKey, sceneDesc, persona, resolution = '540P' } = req.body
+  const { humanName, text, voice, voiceProfileId, count = 1, subtitle, firstFrame, sceneKey, sceneDesc, persona, resolution = '540P', lipSync = false } = req.body
   if (typeof text !== 'string' || !text.trim()) return res.json(fail('请输入口播文案', 400))
   if (String(text).replace(/\s+/g, '').length > 35) return res.json(fail('数字人单段文案暂支持约 35 字以内，请缩短文案', 400))
   if (Number(count) !== 1) return res.json(fail('每次只能生成一条数字人视频', 400))
   if (!['540P', '720P'].includes(resolution)) return res.json(fail('请选择有效的视频清晰度', 400))
   if (voice && !voiceProfileId) return res.json(fail('旧版预设音色已停用，请选择自己的授权音色', 400))
+  if (typeof lipSync !== 'boolean') return res.json(fail('口型同步选项无效', 400))
+  if (lipSync && !voiceProfileId) return res.json(fail('请先选择授权音色，再启用口型同步', 400))
+  if (lipSync && (await lipSyncStatus()).available === false) return res.json(fail('口型同步服务暂不可用，请稍后重试或关闭同步', 503))
   if (voiceProfileId) {
     if (!Number.isSafeInteger(Number(voiceProfileId)) || Number(voiceProfileId) < 1) return res.json(fail('音色参数无效', 400))
     if (!db.prepare('SELECT id FROM voice_profiles WHERE id = ? AND owner_id = ?').get(Number(voiceProfileId), req.user.id)) return res.json(fail('请选择自己上传的音色', 400))
@@ -262,7 +266,7 @@ router.post('/create/human', authRequired, asyncHandler(async (req, res) => {
   }
   // 场景约束创作链路：firstFrame（合成首帧）→ 图生视频；sceneKey/persona → prompt 约束
   const task = createTask(req.user.id, 'human', {
-    humanName: String(humanName || '').slice(0, 80), text: text.trim(), voiceProfileId: voiceProfileId ? Number(voiceProfileId) : null, count, subtitle: sub,
+    humanName: String(humanName || '').slice(0, 80), text: text.trim(), voiceProfileId: voiceProfileId ? Number(voiceProfileId) : null, count, subtitle: sub, lipSync,
     firstFrame: firstFrame || null, sceneKey: sceneKey || null, sceneDesc: sceneDesc || null, resolution,
     persona: persona && typeof persona === 'object' ? persona : null,
   }, MODULES.human.point)

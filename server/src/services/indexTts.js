@@ -7,6 +7,8 @@ import db from '../db.js'
 import { FFMPEG, MEDIA_UPLOAD_DIR, localMediaPath, probeAudio, probeMedia, runMedia } from './mediaTools.js'
 import { burnSubtitles } from './subtitleBurn.js'
 import { mgSpeech, modelGateStatus } from './aiProviders.js'
+import { applyLipSync, lipSyncStatus } from './lipSync.js'
+import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PRIVATE_DIR = process.env.PRIVATE_DATA_DIR ? path.resolve(process.env.PRIVATE_DATA_DIR) : path.resolve(__dirname, '../../data/private')
@@ -35,10 +37,11 @@ export function ttsTextLimit() { return process.env.INDEX_TTS_SYNTHESIS_PROVIDER
 
 export async function indexTtsStatus() {
   const provider = process.env.INDEX_TTS_SYNTHESIS_PROVIDER || 'direct'
-  const [management, gateway] = await Promise.all([voiceManagementStatus(), provider === 'modelgate' ? modelGateStatus() : Promise.resolve(null)])
+  const [management, gateway, lipsync] = await Promise.all([voiceManagementStatus(), provider === 'modelgate' ? modelGateStatus() : Promise.resolve(null), lipSyncStatus()])
   const synthesis = provider === 'direct' ? management : provider === 'modelgate' ? gateway : { available: false, reason: 'invalid_provider' }
   return { ...synthesis, managementAvailable: management.available, managementReason: management.reason,
-    synthesisProvider: provider, maxTextLength: ttsTextLimit() }
+    synthesisProvider: provider, maxTextLength: ttsTextLimit(), lipSyncAvailable: lipsync.available,
+    lipSyncReason: lipsync.reason, lipSyncProvider: lipsync.provider }
 }
 
 async function requireTtsReachable() {
@@ -117,7 +120,7 @@ export async function deleteVoice(ownerId, id) {
   db.prepare('DELETE FROM voice_profiles WHERE id = ? AND owner_id = ?').run(id, ownerId)
 }
 
-export async function dubVideo(ownerId, params) {
+export async function dubVideo(ownerId, params, context = {}) {
   const synthesisProvider = process.env.INDEX_TTS_SYNTHESIS_PROVIDER || 'direct'
   const voice = db.prepare('SELECT * FROM voice_profiles WHERE id = ? AND owner_id = ?').get(params.voiceId, ownerId)
   if (!voice) throw new Error('音色不存在或无权使用')
@@ -129,10 +132,14 @@ export async function dubVideo(ownerId, params) {
   const audioPath = path.join(PRIVATE_DIR, `speech_${crypto.randomUUID()}.wav`)
   const outName = `dubbing_${crypto.randomUUID()}.mp4`
   const output = path.join(MEDIA_UPLOAD_DIR, outName)
+  let synced = null
+  let lipSync = { requested: params.lipSync === true, applied: false }
+  const warnings = []
   try {
     let data
     let response
     try {
+      context.onStage?.('正在合成配音')
       response = synthesisProvider === 'modelgate'
         ? await mgSpeech({ input: params.text, voice: voice.provider_name, speed: params.speed, lang: params.lang || 'zh' })
         : await ttsFetch('/v1/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -147,27 +154,46 @@ export async function dubVideo(ownerId, params) {
     fs.writeFileSync(audioPath, data, { mode: 0o600 })
     const audio = await probeAudio(audioPath)
     if (audio.duration > video.duration + 0.15) throw new Error(`配音约 ${audio.duration.toFixed(1)} 秒，超过视频 ${video.duration.toFixed(1)} 秒；请缩短文案或加快语速`)
+    let visualPath = videoPath
+    if (params.lipSync === true) {
+      context.onStage?.('正在同步口型')
+      try {
+        synced = await applyLipSync(videoPath, audioPath)
+        visualPath = synced.path
+        lipSync = { requested: true, applied: true, provider: 'LatentSync' }
+      } catch (error) {
+        lipSync = { requested: true, applied: false, provider: 'LatentSync' }
+        warnings.push('口型同步未完成，已保留普通配音视频：' + error.message)
+      }
+    }
+    // The third input is always the untouched source so the mix mode retains its original audio.
     const filters = params.mode === 'mix' && video.hasAudio
-      ? `[0:a]volume=0.2,apad,atrim=duration=${video.duration}[original];[1:a]apad,atrim=duration=${video.duration}[speech];[original][speech]amix=inputs=2:duration=first:dropout_transition=0[a]`
+      ? `[2:a]volume=0.2,apad,atrim=duration=${video.duration}[original];[1:a]apad,atrim=duration=${video.duration}[speech];[original][speech]amix=inputs=2:duration=first:dropout_transition=0[a]`
       : `[1:a]apad,atrim=duration=${video.duration}[a]`
-    await runMedia(FFMPEG, ['-y', '-i', videoPath, '-i', audioPath, '-filter_complex', filters, '-map', '0:v:0', '-map', '[a]', '-t', String(video.duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-movflags', '+faststart', output], 900000)
+    await runMedia(FFMPEG, ['-y', '-i', visualPath, '-i', audioPath, '-i', videoPath, '-filter_complex', filters, '-map', '0:v:0', '-map', '[a]', '-t', String(video.duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac', '-movflags', '+faststart', output], 900000)
     const result = await probeMedia(output)
     if (!result.hasAudio || Math.abs(result.duration - video.duration) > 0.2) throw new Error('配音成片校验失败')
     let finalUrl = `/uploads/${outName}`
     let cover = ''
     let subtitle = null
-    if (params.subtitle) {
+    const textCheck = context.frameTextCheck || await inspectVideoText(params.videoUrl, { onStage: context.onStage })
+    const checkWarning = textCheckWarning(textCheck, !!params.subtitle)
+    if (checkWarning && !context.textCheckWarningHandled) warnings.push(checkWarning)
+    if (params.subtitle && textCheck.status === 'clear') {
+      context.onStage?.('正在添加字幕')
       const subtitled = await burnSubtitles(finalUrl, { text: params.text, style: 'pure', subtitleDuration: audio.duration })
       if (!subtitled.subtitleBurned) throw new Error('字幕叠加失败')
       finalUrl = subtitled.url
       cover = subtitled.cover || ''
       subtitle = { burned: true, timing: 'estimated', originalTextRemoved: false }
       try { fs.unlinkSync(output) } catch {}
+    } else if (params.subtitle) {
+      subtitle = { burned: false, reason: textCheck.status, originalTextRemoved: false }
     }
     return { title: '配音视频', desc: params.text.slice(0, 80), engine: 'real', provider: 'indextts', synthesisProvider, model: 'IndexTTS-2.5', generatedAt: new Date().toISOString(),
-      subtitle, videos: [{ name: '配音成片', url: finalUrl, cover, ...result, resolution: `${result.width}x${result.height}` }], images: [] }
+      subtitle, lipSync, qualityCheck: textCheck, warnings, videos: [{ name: '配音成片', url: finalUrl, cover, ...result, resolution: `${result.width}x${result.height}` }], images: [] }
   } catch (error) {
     try { fs.unlinkSync(output) } catch {}
     throw error
-  } finally { try { fs.unlinkSync(audioPath) } catch {} }
+  } finally { try { fs.unlinkSync(audioPath) } catch {}; try { synced?.cleanup() } catch {} }
 }

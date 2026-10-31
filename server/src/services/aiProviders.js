@@ -16,6 +16,8 @@ import { pipeline } from 'stream/promises'
 import dotenv from 'dotenv'
 import { FFMPEG, localMediaPath, probeImage, probeMedia, trimVideo } from './mediaTools.js'
 import { validateH3Frames, validateH3Size } from './h3Spec.js'
+import { embeddingProvider, directEmbedTexts, directEmbedImage, supportsImageEmbeddings } from './embeddingProvider.js'
+export { supportsImageEmbeddings }
 
 // 关键：本模块被静态 import 时可能早于 index.js 的 dotenv.config()，
 // 必须在读取任何 process.env 前先加载 .env（dotenv 不覆盖已存在变量，幂等安全）
@@ -603,13 +605,21 @@ function mgRequired() {
 }
 
 export async function embedTexts(texts) {
+  const provider = embeddingProvider()
+  if (provider === 'direct') return directEmbedTexts(texts)
+  if (provider !== 'modelgate') throw new Error('向量服务类型无效')
   mgRequired()
   return mgEmbed(texts)
 }
 
 export async function embedQuery(text) {
-  mgRequired()
-  return mgEmbedQuery(text)
+  const [vector] = await embedTexts([text])
+  return vector
+}
+
+export async function embedImage(url) {
+  if (!supportsImageEmbeddings()) throw new Error('当前向量服务尚未开放图片输入')
+  return directEmbedImage(url)
 }
 
 export async function rerankDocs(query, documents, topN) {

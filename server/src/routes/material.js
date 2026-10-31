@@ -98,7 +98,7 @@ router.get('/material/list', authRequired, asyncHandler(async (req, res) => {
       if (folder_id) filters.push({ term: { folder_id: +folder_id } })
       const { total, list } = await searchDocs('materials', {
         keyword, filters, from, size: +pageSize,
-        sort: [{ created_at: 'desc' }],
+        sort: [{ _score: 'desc' }, { created_at: 'desc' }],
       })
       return res.json(page(list, total, +pageNum, +pageSize))
     } catch (e) {

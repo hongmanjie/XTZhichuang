@@ -41,3 +41,6 @@
 
 /deploy-pkg/
 /update-pkg.tgz
+
+# Local development search data
+/.dev-data/

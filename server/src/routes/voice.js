@@ -11,6 +11,7 @@ import { createTask } from '../services/aiEngine.js'
 import { splitScript, SUBTITLE_STYLES, SUBTITLE_COVER_MODES, validateSubtitleSegments } from '../services/subtitleBurn.js'
 import { SUBTITLE_TRANSCRIBE_POINTS } from '../services/subtitleTranscription.js'
 import { realEnabled, mgEnabled } from '../services/aiProviders.js'
+import { lipSyncStatus, LIPSYNC_MAX_SECONDS } from '../services/lipSync.js'
 
 const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
@@ -86,7 +87,7 @@ router.delete('/voice/profiles/:id', authRequired, asyncHandler(async (req, res)
 }))
 
 router.post('/voice/dub', authRequired, asyncHandler(async (req, res) => {
-  const { videoUrl, voiceId, text, mode = 'replace', speed = 1, lang = 'zh', subtitle = false } = req.body
+  const { videoUrl, voiceId, text, mode = 'replace', speed = 1, lang = 'zh', subtitle = false, lipSync = false } = req.body
   if (typeof text !== 'string' || !text.trim() || text.length > ttsTextLimit()) return res.json(fail(`请输入 1–${ttsTextLimit()} 字的配音文案`, 400))
   if (!['replace', 'mix'].includes(mode) || !Number.isFinite(Number(speed)) || Number(speed) < 0.5 || Number(speed) > 2 || !['zh', 'en', 'ja', 'es', 'ar', 'zhen'].includes(lang)) return res.json(fail('配音参数无效', 400))
   const voice = db.prepare('SELECT id FROM voice_profiles WHERE id = ? AND owner_id = ?').get(Number(voiceId), req.user.id)
@@ -95,10 +96,16 @@ router.post('/voice/dub', authRequired, asyncHandler(async (req, res) => {
   const material = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'video' AND ${scope.clause}`).get(videoUrl, ...scope.args)
   const file = localMediaPath(videoUrl)
   if (!material || !file || !fs.existsSync(file)) return res.json(fail('视频不存在或无权使用，请先上传视频', 400))
-  if (typeof subtitle !== 'boolean') return res.json(fail('字幕选项无效', 400))
+  if (typeof subtitle !== 'boolean' || typeof lipSync !== 'boolean') return res.json(fail('字幕或口型同步选项无效', 400))
+  if (lipSync) {
+    const sync = await lipSyncStatus()
+    if (sync.available === false) return res.json(fail('口型同步服务暂不可用，请稍后重试或关闭同步', 503))
+    const info = await probeMedia(file)
+    if (info.duration > LIPSYNC_MAX_SECONDS || fs.statSync(file).size > 100 * 1024 * 1024) return res.json(fail('口型同步仅支持 30 秒、100 MB 以内的视频', 400))
+  }
   const health = await indexTtsStatus()
   if (health.available === false) return res.json(fail('配音服务暂时不可连接，请检查网络或稍后重试', 503))
-  const task = createTask(req.user.id, 'voiceDub', { videoUrl, voiceId: Number(voiceId), text: text.trim(), mode, speed: Number(speed), lang, subtitle }, 0)
+  const task = createTask(req.user.id, 'voiceDub', { videoUrl, voiceId: Number(voiceId), text: text.trim(), mode, speed: Number(speed), lang, subtitle, lipSync }, 0)
   res.json(success(task))
 }))
 

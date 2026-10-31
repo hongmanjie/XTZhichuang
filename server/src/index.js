@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import { initES, isESAvailable } from './services/esService.js'
+import { initES, isESAvailable, refreshESHealth } from './services/esService.js'
 import { realEnabled, MODEL_CATALOG } from './services/aiProviders.js'
 import db from './db.js'
 import { backfillVideoCovers } from './services/videoCover.js'
@@ -194,4 +194,6 @@ app.listen(PORT, () => {
 
 bootstrap().then((ok) => {
   console.log(`[ES] 初始化完成: ${ok ? '已连接 (elasticsearch:9200)' : '未连接（搜索降级模式）'}`)
+  const timer = setInterval(() => { void refreshESHealth() }, 30000)
+  timer.unref?.()
 })

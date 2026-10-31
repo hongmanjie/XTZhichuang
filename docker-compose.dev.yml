@@ -11,6 +11,12 @@ services:
       MODELGATE_BASE: ${MODELGATE_BASE:?Set MODELGATE_BASE in .env.dev}
       MODELGATE_API_KEY: ${MODELGATE_API_KEY:?Set MODELGATE_API_KEY in .env.dev}
       MODELGATE_ENABLED: "true"
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-modelgate}
+      EMBEDDING_DIRECT_BASE_URL: ${EMBEDDING_DIRECT_BASE_URL:-}
+      EMBEDDING_DIRECT_MODEL: ${EMBEDDING_DIRECT_MODEL:-qwen3-vl-embedding-2b}
+      LIPSYNC_PROVIDER: ${LIPSYNC_PROVIDER:-disabled}
+      LIPSYNC_DIRECT_BASE_URL: ${LIPSYNC_DIRECT_BASE_URL:-}
+      LIPSYNC_TIMEOUT_MS: ${LIPSYNC_TIMEOUT_MS:-900000}
       AI_REAL_ENABLED: "true"
       AI_TASK_CONCURRENCY: ${AI_TASK_CONCURRENCY:-1}
       TTS_TASK_CONCURRENCY: ${TTS_TASK_CONCURRENCY:-1}
@@ -41,8 +47,7 @@ services:
       ES_JAVA_OPTS: -Xms512m -Xmx512m
     mem_limit: 1g
     volumes:
-      - es-data:/usr/share/elasticsearch/data
+      - ./.dev-data/elasticsearch:/usr/share/elasticsearch/data
 volumes:
   app-data:
   app-uploads:
-  es-data:

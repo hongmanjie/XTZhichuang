@@ -5,7 +5,7 @@ import { api } from '../../api/request'
 import { withBase } from "../../utils/base"
 
 type Voice = { id: number; name: string }
-type VoiceStatus = { available: boolean | null; reason: string; managementAvailable: boolean | null; managementReason: string; synthesisProvider: string; maxTextLength: number; subtitleTranscribePoints: number | null }
+type VoiceStatus = { available: boolean | null; reason: string; managementAvailable: boolean | null; managementReason: string; synthesisProvider: string; maxTextLength: number; subtitleTranscribePoints: number | null; lipSyncAvailable: boolean | null; lipSyncReason: string; lipSyncProvider: string }
 type Material = { id: number; name: string; url: string }
 type SubtitleSegment = { text: string; start: number | null; end: number | null }
 type Task = { id: number; task_no: string; module: string; status: string; stage?: string; error?: string; result?: any; params?: any; provider_task_id?: string }
@@ -22,6 +22,7 @@ export default function VoiceStudio() {
   const [mode, setMode] = useState('replace')
   const [speed, setSpeed] = useState(1)
   const [subtitle, setSubtitle] = useState(false)
+  const [lipSync, setLipSync] = useState(false)
   const [subtitleText, setSubtitleText] = useState('')
   const [segments, setSegments] = useState<SubtitleSegment[]>([{ text: '', start: 0, end: 3 }])
   const [subtitleStyle, setSubtitleStyle] = useState('pure')
@@ -48,7 +49,7 @@ export default function VoiceStudio() {
     return () => clearInterval(timer)
   }, [load])
   useEffect(() => {
-    const check = () => api.voiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus({ available: null, reason: 'health_unknown', managementAvailable: null, managementReason: 'health_unknown', synthesisProvider: 'unknown', maxTextLength: 600, subtitleTranscribePoints: null }))
+    const check = () => api.voiceStatus().then(setVoiceStatus).catch(() => setVoiceStatus({ available: null, reason: 'health_unknown', managementAvailable: null, managementReason: 'health_unknown', synthesisProvider: 'unknown', maxTextLength: 600, subtitleTranscribePoints: null, lipSyncAvailable: null, lipSyncReason: 'health_unknown', lipSyncProvider: 'unknown' }))
     check()
     const timer = setInterval(check, 30000)
     return () => clearInterval(timer)
@@ -92,7 +93,7 @@ export default function VoiceStudio() {
     if (script.length > (voiceStatus?.maxTextLength || 600)) return message.warning(`当前配音方式最多支持 ${voiceStatus?.maxTextLength || 600} 字`)
     setSubmitting(true)
     try {
-      await api.dubVoice({ videoUrl, voiceId, text: script, mode, speed, lang: 'zh', subtitle })
+      await api.dubVoice({ videoUrl, voiceId, text: script, mode, speed, lang: 'zh', subtitle, lipSync })
       message.success('配音任务已加入队列')
       load()
     } catch {} finally { setSubmitting(false) }
@@ -153,9 +154,12 @@ export default function VoiceStudio() {
           <div><label className="mb-2 block text-sm font-medium">3. 输入配音文案</label><Input.TextArea rows={5} maxLength={voiceStatus?.maxTextLength || 600} showCount value={script} onChange={(e) => setScript(e.target.value)} placeholder="输入视频需要说的话" /></div>
           <div className="flex flex-wrap items-center gap-4"><span className="text-sm">语速</span><InputNumber min={0.5} max={2} step={0.1} value={speed} onChange={(value) => setSpeed(value || 1)} /><span className="text-xs text-gray-500">文案过长时可提高语速或缩短内容</span></div>
           <div><div className="mb-2 text-sm font-medium">原视频声音</div><Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}><Radio value="replace">替换原音</Radio><Radio value="mix">保留低音量原音</Radio></Radio.Group><p className="mt-2 text-xs text-gray-500">保留原音时，原视频中的人声也会保留并可能与新配音重叠。</p></div>
-          <div><Checkbox checked={subtitle} onChange={(event) => setSubtitle(event.target.checked)}>添加新字幕</Checkbox><p className="mt-2 text-xs text-gray-500">字幕按文案和语音时长估算，可能与语音存在偏差；不会自动去除画面里的旧字幕。</p></div>
-          <div className="rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-500">口型同步暂未接入；当前配音会替换或混合音轨，人物嘴型不会自动改变。画面中已有的字幕也不会自动移除。</div>
-          <Button type="primary" size="large" block loading={submitting} disabled={uploading || voiceStatus?.available === false} onClick={createDub}>生成配音视频</Button>
+          <div><Checkbox checked={subtitle} onChange={(event) => setSubtitle(event.target.checked)}>添加新字幕</Checkbox><p className="mt-2 text-xs text-gray-500">会抽帧检查画面底部；发现疑似文字或检查失败时暂停加字幕，避免重复。抽帧可能漏检或误判，请检查成片；原画面文字不会自动移除。</p></div>
+          <div><Checkbox checked={lipSync} disabled={voiceStatus?.lipSyncAvailable === false && !lipSync} onChange={(event) => setLipSync(event.target.checked)}>同步人物口型</Checkbox>
+            <p className="mt-2 text-xs leading-5 text-gray-500">建议使用不超过 30 秒的清晰正面单人视频；模型处理较慢，遮挡、侧脸或多人画面可能失败。未完成时保留普通配音并显示提示。</p>
+            {voiceStatus?.lipSyncAvailable === false && <p className="mt-1 text-xs text-amber-700">口型同步服务暂不可用，可关闭后继续配音。</p>}
+            {voiceStatus?.lipSyncAvailable === null && <p className="mt-1 text-xs text-gray-500">口型服务可能正在处理其他任务，状态暂无法确认；提交后可能需要排队。</p>}</div>
+          <Button type="primary" size="large" block loading={submitting} disabled={uploading || voiceStatus?.available === false || (lipSync && voiceStatus?.lipSyncAvailable === false)} onClick={createDub}>生成配音视频</Button>
           </> : <>
             <div><label className="mb-2 block text-sm font-medium">2. 输入字幕文案（可选）</label>
               <Input.TextArea rows={3} maxLength={600} showCount value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} placeholder="粘贴文案后可生成时间草稿，也可直接逐条填写" />
@@ -177,7 +181,7 @@ export default function VoiceStudio() {
           </>}
         </div>
         <div className="rounded-2xl bg-white p-6 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">我的处理任务</h2><button onClick={load} className="text-xs text-purple-600"><ReloadOutlined /> 刷新</button></div>
-          {tasks.length === 0 ? <Empty description="暂无任务" /> : <div className="space-y-4">{tasks.map((task) => <div key={task.id} className="rounded-xl border border-gray-100 p-3"><div className="mb-2 flex justify-between text-xs text-gray-500"><span>{task.module === 'subtitleEdit' ? '字幕' : task.module === 'subtitleTranscribe' ? '语音识别' : '配音'} · {task.task_no}</span><span>{task.stage || task.status}</span></div>{!!task.result?.warnings?.length && <p className="mb-2 text-xs text-amber-600">{task.result.warnings.join('；')}</p>}{task.status === 'success' && task.module === 'subtitleTranscribe' && task.result?.subtitles ? <p className="text-xs text-gray-600">已识别 {task.result.subtitles.segments.length} 句，请应用草稿并检查文字与时间。</p> : task.status === 'success' && task.result?.videos?.[0]?.url ? <video controls className="w-full rounded-lg bg-black" src={withBase(task.result.videos[0].url)} /> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}{task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}{(task.status === 'failed' || (task.status === 'reconciling' && task.module !== 'subtitleTranscribe')) && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}{task.module === 'subtitleTranscribe' && task.status === 'success' && task.result?.subtitles && <Popconfirm title="应用后会替换当前字幕草稿，继续吗？" onConfirm={() => { setWorkMode('captions'); setVideoUrl(task.params.videoUrl); setSegments(task.result.subtitles.segments); setSubtitleText(task.result.subtitles.text); window.scrollTo({ top: 0, behavior: 'smooth' }) }}><Button className="mt-2" size="small">应用识别草稿</Button></Popconfirm>}{task.module === 'subtitleEdit' && task.status === 'success' && task.params?.segments && <Button className="mt-2" size="small" onClick={() => { setWorkMode('captions'); setVideoUrl(task.params.videoUrl); setSegments(task.params.segments); setSubtitleStyle(task.params.style || 'pure'); setCoverMode(task.params.coverMode || 'none'); setSubtitleText(task.params.segments.map((item: SubtitleSegment) => item.text).join('')); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>再次校对</Button>}</div>)}</div>}</div>
+          {tasks.length === 0 ? <Empty description="暂无任务" /> : <div className="space-y-4">{tasks.map((task) => <div key={task.id} className="rounded-xl border border-gray-100 p-3"><div className="mb-2 flex justify-between text-xs text-gray-500"><span>{task.module === 'subtitleEdit' ? '字幕' : task.module === 'subtitleTranscribe' ? '语音识别' : '配音'} · {task.task_no}</span><span>{task.stage || task.status}</span></div>{!!task.result?.warnings?.length && <p className="mb-2 text-xs text-amber-600">{task.result.warnings.join('；')}</p>}{task.status === 'success' && task.module === 'subtitleTranscribe' && task.result?.subtitles ? <p className="text-xs text-gray-600">已识别 {task.result.subtitles.segments.length} 句，请应用草稿并检查文字与时间。</p> : task.status === 'success' && task.result?.videos?.[0]?.url ? <video controls className="w-full rounded-lg bg-black" src={withBase(task.result.videos[0].url)} /> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}{task.status === 'pending' && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消排队</Button>}{(task.status === 'failed' || (task.status === 'reconciling' && task.module !== 'subtitleTranscribe' && !['口型状态待核对', '配音状态待核对'].includes(task.stage || ''))) && <Button className="mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>重新尝试</Button>}{task.module === 'subtitleTranscribe' && task.status === 'success' && task.result?.subtitles && <Popconfirm title="应用后会替换当前字幕草稿，继续吗？" onConfirm={() => { setWorkMode('captions'); setVideoUrl(task.params.videoUrl); setSegments(task.result.subtitles.segments); setSubtitleText(task.result.subtitles.text); window.scrollTo({ top: 0, behavior: 'smooth' }) }}><Button className="mt-2" size="small">应用识别草稿</Button></Popconfirm>}{task.module === 'subtitleEdit' && task.status === 'success' && task.params?.segments && <Button className="mt-2" size="small" onClick={() => { setWorkMode('captions'); setVideoUrl(task.params.videoUrl); setSegments(task.params.segments); setSubtitleStyle(task.params.style || 'pure'); setCoverMode(task.params.coverMode || 'none'); setSubtitleText(task.params.segments.map((item: SubtitleSegment) => item.text).join('')); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>再次校对</Button>}</div>)}</div>}</div>
       </div>
       <Modal title="添加授权音色" open={voiceModal} onCancel={() => setVoiceModal(false)} onOk={saveVoice} confirmLoading={savingVoice} okText="添加音色">
         <p className="mb-4 text-sm text-gray-500">上传 1–30 秒清晰人声，推荐 3–10 秒。请仅使用你有权使用的声音。</p>
