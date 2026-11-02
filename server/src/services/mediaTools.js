@@ -3,14 +3,21 @@ import path from 'path'
 import crypto from 'crypto'
 import { execFile } from 'child_process'
 import { fileURLToPath } from 'url'
-import ffmpegStatic from 'ffmpeg-static'
-import ffprobeInstaller from '@ffprobe-installer/ffprobe'
+import { createRequire } from 'module'
 import dotenv from 'dotenv'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
-export const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || 'ffmpeg'
-export const FFPROBE = process.env.FFPROBE_PATH || ffprobeInstaller.path || 'ffprobe'
+const require = createRequire(import.meta.url)
+function mediaBinary(envPath, moduleName, fallback) {
+  if (envPath) return envPath
+  try {
+    const binary = require(moduleName)
+    return (typeof binary === 'string' ? binary : binary?.path) || fallback
+  } catch { return fallback }
+}
+export const FFMPEG = mediaBinary(process.env.FFMPEG_PATH, 'ffmpeg-static', 'ffmpeg')
+export const FFPROBE = mediaBinary(process.env.FFPROBE_PATH, '@ffprobe-installer/ffprobe', 'ffprobe')
 export const MEDIA_UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
   : path.resolve(__dirname, '../../uploads')

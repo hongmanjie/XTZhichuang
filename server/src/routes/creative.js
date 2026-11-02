@@ -2,10 +2,14 @@ import express from 'express'
 import db from '../db.js'
 import { authRequired } from '../middleware/auth.js'
 import { success, fail, page, asyncHandler } from '../utils/response.js'
-import { mgEnabled, mgSAM, mgImageGen, saveBase64ToUploads, imageToBase64 } from '../services/aiProviders.js'
+import { mgEnabled, mgSAM, mgImageGen, saveBase64ToUploads, imageToBase64, realEnabled } from '../services/aiProviders.js'
 import { cleanupFiles } from '../utils/fileStore.js'
 import path from 'path'
 import fs from 'fs'
+import { teamCond } from '../utils/teamScope.js'
+import { createTask, listTasks } from '../services/aiEngine.js'
+import { inspectSuperResolutionInput, superResolutionProvider, superResolutionSettings, SUPER_RES_POINTS_PER_SECOND } from '../services/superResolution.js'
+import { localMediaPath } from '../services/mediaTools.js'
 
 const router = express.Router()
 
@@ -161,20 +165,23 @@ router.get('/three/second/demo/list', authRequired, (req, res) => {
 })
 
 router.post('/three/second/make/video', authRequired, (req, res) => {
-  const { name, category, hookType, productName } = req.body
-  if (!name) return res.json(fail('请输入任务名称', 400))
-  const cost = 30
-  if (req.user.ai_points < cost) return res.json(fail('AI点数不足', 400))
-  db.prepare('UPDATE users SET ai_points = ai_points - ? WHERE id = ?').run(cost, req.user.id)
-  db.prepare('INSERT INTO consumption_logs (user_id, module, action, points, remark) VALUES (?, ?, ?, ?, ?)')
-    .run(req.user.id, 'threeSecond', '三秒完播创作', -cost, name)
-  const r = db.prepare('INSERT INTO three_second_tasks (name, category, params, points_cost, owner_id) VALUES (?, ?, ?, ?, ?)')
-    .run(name, category || 'ecommerce', JSON.stringify({ hookType, productName }), cost, req.user.id)
-  const id = r.lastInsertRowid
-  setTimeout(() => {
-    db.prepare("UPDATE three_second_tasks SET status = 'success', progress = 100, result_url = 'https://cdn.yimetai.com/demo/three-second-result.mp4', finished_at = datetime('now','localtime') WHERE id = ?").run(id)
-  }, 5000)
-  res.json(success({ id }, '创建成功'))
+  const { name, prompt, productName, hookType = 'visual', firstFrame = null, resolution = '540P' } = req.body
+  const title = typeof name === 'string' ? name.trim().slice(0, 80) : ''
+  const text = typeof prompt === 'string' ? prompt.trim() : (typeof productName === 'string' && productName.trim()) || title
+  if (!title || !text || text.length > 400) return res.json(fail('请填写任务名称和 1–400 字的创作描述', 400))
+  if (!['visual', 'pain', 'counter', 'number', 'suspense', 'identity', 'benefit'].includes(hookType) || !['540P', '720P'].includes(resolution)) return res.json(fail('开场类型或清晰度无效', 400))
+  if (firstFrame) {
+    if (typeof firstFrame !== 'string') return res.json(fail('参考图片无效', 400))
+    const scope = teamCond(req.user.id)
+    const material = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'image' AND ${scope.clause}`).get(firstFrame, ...scope.args)
+    const file = localMediaPath(firstFrame)
+    if (!material || !file || !fs.existsSync(file)) return res.json(fail('参考图片不存在或无权使用', 400))
+  }
+  if (!realEnabled()) return res.json(fail('AI 引擎尚未启用', 503))
+  try {
+    const task = createTask(req.user.id, 'threeSecond', { title, prompt: text, hookType, firstFrame, resolution }, 30)
+    res.json(success(task, '三秒开场任务已加入队列'))
+  } catch (error) { res.json(fail(error.message, 400)) }
 })
 
 router.get('/three/second/service/health', authRequired, (req, res) => {
@@ -196,49 +203,48 @@ router.post('/three/second/task/delete', authRequired, (req, res) => {
 
 // ============ 高清视频修复 ============
 router.get('/super/resolution/init/info/new', authRequired, (req, res) => {
-  res.json(success({
-    modes: [
-      { key: 'standard', name: '标清修复', desc: '720P → 1080P', cost: 20 },
-      { key: 'pro', name: '高清修复', desc: '1080P → 2K/4K', cost: 50 },
-    ],
-    maxSize: 500,
-  }))
+  try { res.json(success(superResolutionSettings())) }
+  catch (error) { res.json(fail(error.message, 503)) }
 })
 
-router.post('/super/resolution/create/new', authRequired, (req, res) => {
+async function superResolutionInput(userId, sourceUrl, provider = superResolutionProvider()) {
+  if (typeof sourceUrl !== 'string') throw new Error('请选择视频')
+  const scope = teamCond(userId)
+  const material = db.prepare(`SELECT id FROM materials WHERE url = ? AND type = 'video' AND ${scope.clause}`).get(sourceUrl, ...scope.args)
+  if (!material) throw new Error('视频不存在或无权使用')
+  return inspectSuperResolutionInput(sourceUrl, { provider })
+}
+
+router.post('/super/resolution/estimate', authRequired, asyncHandler(async (req, res) => {
+  try {
+    const info = await superResolutionInput(req.user.id, req.body.sourceUrl)
+    const cost = Math.ceil(info.duration) * SUPER_RES_POINTS_PER_SECOND
+    res.json(success({ duration: info.duration, width: info.width, height: info.height, hasAudio: info.hasAudio, points: cost }))
+  } catch (error) { res.json(fail(error.message, 400)) }
+}))
+
+router.post('/super/resolution/create/new', authRequired, asyncHandler(async (req, res) => {
   const { name, sourceUrl, mode = 'standard' } = req.body
-  if (!sourceUrl) return res.json(fail('请上传视频', 400))
-  const cost = mode === 'pro' ? 50 : 20
-  if (req.user.ai_points < cost) return res.json(fail('AI点数不足', 400))
-  db.prepare('UPDATE users SET ai_points = ai_points - ? WHERE id = ?').run(cost, req.user.id)
-  db.prepare('INSERT INTO consumption_logs (user_id, module, action, points, remark) VALUES (?, ?, ?, ?, ?)')
-    .run(req.user.id, 'superRes', '高清修复', -cost, name || '高清修复任务')
-  const r = db.prepare('INSERT INTO super_res_tasks (name, source_url, mode, owner_id) VALUES (?, ?, ?, ?)')
-    .run(name || '高清修复任务', sourceUrl, mode, req.user.id)
-  const id = r.lastInsertRowid
-  setTimeout(() => {
-    db.prepare("UPDATE super_res_tasks SET status = 'success', progress = 100, result_url = ?, finished_at = datetime('now','localtime') WHERE id = ?")
-      .run(sourceUrl, id)
-  }, 5000)
-  res.json(success({ id }, '修复任务已创建'))
-})
+  if (mode !== 'standard') return res.json(fail('当前网关只支持已验证的默认增强模式', 400))
+  try {
+    const provider = superResolutionProvider()
+    const info = await superResolutionInput(req.user.id, sourceUrl, provider)
+    const cost = Math.ceil(info.duration) * SUPER_RES_POINTS_PER_SECOND
+    const task = createTask(req.user.id, 'superRes', { videoUrl: sourceUrl, provider, title: String(name || '视频画质增强').trim().slice(0, 80) || '视频画质增强' }, cost)
+    res.json(success(task, '增强任务已加入队列'))
+  } catch (error) { res.json(fail(error.message, 400)) }
+}))
 
 router.get('/super/resolution/task/list', authRequired, (req, res) => {
-  const list = db.prepare('SELECT * FROM super_res_tasks WHERE owner_id = ? ORDER BY id DESC LIMIT 50').all(req.user.id)
-  res.json(success({ list }))
+  const list = listTasks(req.user.id, { module: 'superRes', pageSize: 50 }).list
+  const legacyCount = db.prepare('SELECT COUNT(*) n FROM super_res_tasks WHERE owner_id = ?').get(req.user.id).n
+  res.json(success({ list, legacyCount }))
 })
 
-// 高清修复任务删除（批量，清理结果文件）
+// Legacy records could point directly to the original video, so deleting their
+// alleged result must not delete a user's source file.
 router.post('/super/resolution/task/delete', authRequired, (req, res) => {
-  const ids = (Array.isArray(req.body.ids) ? req.body.ids : [req.body.id]).map(Number).filter(Boolean)
-  if (!ids.length) return res.json(fail('请选择要删除的任务', 400))
-  const ph = ids.map(() => '?').join(',')
-  const rows = db.prepare(`SELECT id, result_url FROM super_res_tasks WHERE id IN (${ph}) AND owner_id = ?`).all(...ids, req.user.id)
-  if (!rows.length) return res.json(fail('任务不存在', 404))
-  const okIds = rows.map((r) => r.id)
-  db.prepare(`DELETE FROM super_res_tasks WHERE id IN (${okIds.map(() => '?').join(',')})`).run(...okIds)
-  cleanupFiles(rows.map((r) => r.result_url))
-  res.json(success({ deleted: okIds.length }, `已删除${okIds.length}个任务`))
+  res.json(fail('旧版修复记录来源未验证，暂不支持删除', 503))
 })
 
 // ============ 视频解析（场景分析） ============

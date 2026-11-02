@@ -46,14 +46,14 @@ const migrate = db.transaction(() => {
   })
 
   // 2. 主账号补体验会员（vip_level 缺省或有效期为空时补齐）
-  db.prepare(`UPDATE users SET vip_level = 'trial' WHERE account = '18008643374' AND (vip_level IS NULL OR vip_level = '')`).run()
+  db.prepare(`UPDATE users SET vip_level = 'trial' WHERE account = 'demo-admin' AND (vip_level IS NULL OR vip_level = '')`).run()
   db.prepare(`UPDATE users SET vip_expire_at = datetime('now', 'localtime', '+7 day')
-    WHERE account = '18008643374' AND vip_level = 'trial' AND (vip_expire_at IS NULL OR vip_expire_at = '')`).run()
+    WHERE account = 'demo-admin' AND vip_level = 'trial' AND (vip_expire_at IS NULL OR vip_expire_at = '')`).run()
 })
 
 migrate()
 const count = db.prepare('SELECT COUNT(*) c FROM point_packages').get().c
-const vip = db.prepare("SELECT account, vip_level, vip_expire_at FROM users WHERE account = '18008643374'").get()
+const vip = db.prepare("SELECT account, vip_level, vip_expire_at FROM users WHERE account = 'demo-admin'").get()
 console.log(`✓ 套餐迁移完成，共 ${count} 个套餐`)
 console.log('✓ 主账号会员状态：', vip)
 process.exit(0)

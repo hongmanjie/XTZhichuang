@@ -15,10 +15,18 @@ import { analyzeVideo } from './videoAnalysis.js'
 import { generateStudio } from './studio.js'
 import { prepareReferenceVideo } from './replica.js'
 import { concatenateVideos, localMediaPath, probeMedia } from './mediaTools.js'
+import { enhanceVideo } from './superResolution.js'
+import { isSeedVRDirectId } from './seedvrDirect.js'
+import { cleanupSuperResolutionSegments } from './superResolutionSegments.js'
+import { generateHumanVideo, cleanupHumanVoiceWorkflow } from './humanVideo.js'
+import { describeProductImage } from './visionProvider.js'
+import { prepareHumanProductFrame } from './humanProduct.js'
+import { transcribeSubtitles } from './subtitleTranscription.js'
+import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
 
-// 无文字画面约束：视频生成模型第一段出片时禁绝一切画面文字/字幕，
-// 字幕由 subtitleBurn 二段叠加，杜绝 AI 生成字幕的变形、乱码、闪烁问题
-const NO_TEXT_CONSTRAINT = '尽量避免画面文字、字幕、字母、数字、水印和贴纸，人物嘴部动作自然，画面保持干净'
+// 尽量让模型生成无字画面；生成模型可能忽略提示，后续抽帧检查仍需人工复核。
+// 清晰字幕由字幕服务后期叠加，不能移除原画面中的文字。
+const NO_TEXT_CONSTRAINT = '画面保持简洁干净，背景和人物周围不出现任何字幕、字母、数字、角标、台标、文字标识、贴纸或图形叠加，人物嘴部动作自然'
 
 // ============================================================
 // 数字人创作链路：模块化场景约束
@@ -73,13 +81,17 @@ export function buildPersonaPrompt(persona = {}) {
 }
 
 // 场景 + 形象 → 首帧/视频统一 prompt
-export function buildHumanScenePrompt({ text, sceneKey, sceneDesc, persona, humanName } = {}) {
+export function buildHumanScenePrompt({ text, sceneKey, sceneDesc, persona, humanName, productDesc } = {}) {
   const scene = sceneDesc || HUMAN_SCENE_TEMPLATES[sceneKey]?.desc || ''
   const personaPart = persona ? buildPersonaPrompt(persona) : `一位${persona?.humanName || '专业'}的主播，真人写实风格`
   const parts = [personaPart]
   if (humanName) parts.push(`主播形象风格：${String(humanName).slice(0, 40)}`)
   if (scene) parts.push(`身处${scene}`)
-  if (text) parts.push(`正在面对镜头口播讲述：「${String(text).slice(0, 120)}」`)
+  if (productDesc) parts.push(`桌面上摆放着${String(productDesc).slice(0, 60)}，人物与商品同框且商品清晰可见`)
+  if (text) parts.push('近景半身构图，面部占画面高度三分之一以上，五官清晰')
+  if (text) parts.push('人物正面面对镜头自然说话，神情亲切，嘴部动作清晰')
+  // 官方镜头语法：Static Shot 保持机位与焦段不动，人脸不漂移，口型更好对齐
+  parts.push('Static Shot，机位与焦段保持不动')
   parts.push('真实摄影质感，商业布光，主体清晰')
   parts.push(NO_TEXT_CONSTRAINT)
   return parts.join('。')
@@ -97,7 +109,7 @@ let queueWakeScheduled = false
 
 // 生成任务编号
 function genTaskNo(module) {
-  const prefix = { replica: 'FK', factory: 'MG', studio: 'SP', materialField: 'SC', analysis: 'JX', human: 'SM', mix: 'JJ', videoJoin: 'PJ', subtitleEdit: 'ZM', humanAsset: 'HC' }[module] || 'AI'
+  const prefix = { replica: 'FK', factory: 'MG', studio: 'SP', materialField: 'SC', analysis: 'JX', human: 'SM', mix: 'JJ', videoJoin: 'PJ', subtitleEdit: 'ZM', subtitleTranscribe: 'ZY', humanAsset: 'HC', superRes: 'GQ', threeSecond: 'SK' }[module] || 'AI'
   return `${prefix}${Date.now()}${crypto.randomInt(1000, 9999)}`
 }
 
@@ -142,6 +154,9 @@ const RESULT_TEMPLATES = {
   videoAnalysis: { title: '视频文字与语音解析', desc: '识别视频中的语音和抽帧文字', scenes: [] },
   videoJoin: { title: '视频拼接', desc: '按所选顺序拼接真实视频片段', scenes: [] },
   subtitleEdit: { title: '字幕视频', desc: '按校对后的时间添加字幕', scenes: [] },
+  subtitleTranscribe: { title: '语音字幕草稿', desc: '识别视频语音并生成待校对字幕', scenes: [] },
+  superRes: { title: '视频画质增强', desc: '用 SeedVR2 增强低分辨率视频', scenes: [] },
+  threeSecond: { title: '三秒开场视频', desc: '生成视频开场素材', scenes: [] },
   mix: {
     title: '智能混剪成片',
     desc: 'AI一键混剪成片',
@@ -192,7 +207,19 @@ function claimNextTask() {
     const speechAvailable = Number((active.speech || 0) < TTS_TASK_CONCURRENCY)
     const modelAvailable = Number((active.model || 0) < AI_TASK_CONCURRENCY)
     if (!speechAvailable && !modelAvailable) return null
-    const task = db.prepare("SELECT id FROM ai_tasks WHERE status = 'pending' AND ((? = 1 AND module = 'voiceDub') OR (? = 1 AND module <> 'voiceDub')) ORDER BY id LIMIT 1").get(speechAvailable, modelAvailable)
+    // Direct SeedVR2 and LatentSync share a GPU in the current deployment.
+    // Let ordinary voice work run independently, but serialize requested lip-sync
+    // and direct enhancement inside this app instance.
+    const shared = db.prepare(`SELECT
+      SUM(CASE WHEN module = 'superRes' AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.provider') ELSE NULL END) = 'direct' THEN 1 ELSE 0 END) AS enhancement,
+      SUM(CASE WHEN module IN ('voiceDub', 'human') AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.lipSync') ELSE 0 END) = 1 THEN 1 ELSE 0 END) AS lip
+      FROM ai_tasks WHERE status = 'running'`).get()
+    const sharedGpuBusy = process.env.SEEDVR_LIPSYNC_SHARE_GPU !== 'false' && (shared.enhancement || 0) + (shared.lip || 0) > 0
+    const task = db.prepare(`SELECT id FROM ai_tasks WHERE status = 'pending'
+      AND ((? = 1 AND module = 'voiceDub') OR (? = 1 AND module <> 'voiceDub'))
+      AND NOT (? = 1 AND module IN ('voiceDub', 'human') AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.lipSync') ELSE 0 END) = 1)
+      AND NOT (? = 1 AND module = 'superRes' AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.provider') ELSE NULL END) = 'direct')
+      ORDER BY id LIMIT 1`).get(speechAvailable, modelAvailable, Number(sharedGpuBusy), Number(sharedGpuBusy))
     if (!task) return null
     db.prepare("UPDATE ai_tasks SET status = 'running', progress = 0, stage = CASE WHEN module = 'videoJoin' THEN '正在准备视频拼接' WHEN module = 'subtitleEdit' THEN '正在准备字幕' ELSE '正在提交或查询模型任务' END WHERE id = ? AND status = 'pending'")
       .run(task.id)
@@ -238,9 +265,10 @@ function startTask(task) {
       db.transaction(() => {
         const current = db.prepare('SELECT * FROM ai_tasks WHERE id = ?').get(taskId)
         if (!current || current.status !== 'running') return
-        if (['MG_TASK_UNCERTAIN', 'MG_SUBMIT_UNCERTAIN', 'TTS_UNCERTAIN'].includes(err.code) || (current.provider_task_id && !['MG_TASK_FAILED', 'MG_TASK_CANCELLED'].includes(err.code))) {
-          db.prepare("UPDATE ai_tasks SET status = 'reconciling', error = ?, stage = '上游状态待核对', provider_task_id = COALESCE(provider_task_id, ?) WHERE id = ?")
-            .run(String(err.message).slice(0, 300), err.taskId || null, taskId)
+        if (['MG_TASK_UNCERTAIN', 'MG_SUBMIT_UNCERTAIN', 'TTS_UNCERTAIN', 'LIPSYNC_UNCERTAIN', 'ASR_UNCERTAIN'].includes(err.code) || (current.provider_task_id && !['MG_TASK_FAILED', 'MG_TASK_CANCELLED', 'MG_RESULT_INVALID'].includes(err.code))) {
+          const stage = err.code === 'TTS_UNCERTAIN' ? '配音状态待核对' : err.code === 'LIPSYNC_UNCERTAIN' ? '口型状态待核对' : '上游状态待核对'
+          db.prepare("UPDATE ai_tasks SET status = 'reconciling', error = ?, stage = ?, provider_task_id = COALESCE(provider_task_id, ?) WHERE id = ?")
+            .run(String(err.message).slice(0, 300), stage, err.taskId || null, taskId)
         } else {
           refundReserved(current)
           const status = err.code === 'MG_TASK_CANCELLED' ? 'canceled' : 'failed'
@@ -255,7 +283,29 @@ function startTask(task) {
 // Single-server recovery: an upstream task ID is resumed; uncertain submissions are never repeated.
 export function recoverAiTasks() {
   db.transaction(() => {
+    db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '口型状态待核对', error = '服务重启时口型同步可能仍在上游执行，请先核对，不自动重复提交' WHERE status = 'running' AND stage = '正在同步口型'").run()
+    db.prepare(`UPDATE ai_tasks SET status = 'reconciling', stage = '配音状态待核对', error = '服务重启时配音或后处理可能已执行，请先核对，不自动重复提交'
+      WHERE status = 'running' AND (
+        (module = 'voiceDub' AND stage IN ('正在合成配音', '正在抽帧检查画面文字', '正在添加字幕'))
+        OR (module = 'human' AND json_valid(params) AND json_extract(params, '$.voiceProfileId') IS NOT NULL
+          AND (stage = '正在合成配音' OR (stage = '正在添加字幕' AND COALESCE(json_extract(params, '$.workflow'), '') <> 'audio-first')))
+      )`).run()
     db.prepare("UPDATE ai_tasks SET status = 'pending', stage = '恢复查询上游任务' WHERE status = 'running' AND provider_task_id IS NOT NULL AND idempotency_key IS NOT NULL").run()
+    db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复分段增强'
+      WHERE status = 'running' AND module = 'superRes'
+      AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.provider') ELSE NULL END) = 'direct'
+      AND EXISTS (SELECT 1 FROM super_res_segments s WHERE s.task_id = ai_tasks.id)
+      AND NOT EXISTS (SELECT 1 FROM super_res_segments s WHERE s.task_id = ai_tasks.id AND s.status = 'submitting')`).run()
+    db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复数字人配音'
+      WHERE status = 'running' AND module = 'human' AND provider_task_id IS NULL
+      AND EXISTS (SELECT 1 FROM human_voice_workflows w WHERE w.task_id = ai_tasks.id AND w.status = 'segmenting')
+      AND NOT EXISTS (SELECT 1 FROM human_speech_segments s WHERE s.task_id = ai_tasks.id AND s.status = 'submitting')`).run()
+    db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复数字人视频'
+      WHERE status = 'running' AND module = 'human' AND provider_task_id IS NULL
+      AND (CASE WHEN json_valid(params) THEN json_extract(params, '$.workflow') ELSE NULL END) = 'audio-first'
+      AND EXISTS (SELECT 1 FROM human_voice_workflows w WHERE w.task_id = ai_tasks.id AND w.status = 'ready')
+      AND NOT EXISTS (SELECT 1 FROM human_product_workflows p WHERE p.task_id = ai_tasks.id AND p.status = 'background_submitting' AND p.provider_task_id IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM long_video_segments s WHERE s.task_id = ai_tasks.id AND s.status = 'submitting')`).run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '拼接中断，可重新尝试', error = '服务重启时本地拼接中断，请重新尝试' WHERE status = 'running' AND module = 'videoJoin'").run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '字幕处理中断，可重新尝试', error = '服务重启时字幕处理未完成，请重新尝试' WHERE status = 'running' AND module = 'subtitleEdit'").run()
     db.prepare(`UPDATE ai_tasks SET status = 'pending', stage = '恢复长视频制作'
@@ -265,27 +315,38 @@ export function recoverAiTasks() {
       AND NOT EXISTS (SELECT 1 FROM long_video_segments s WHERE s.task_id = ai_tasks.id AND s.status = 'submitting')`).run()
     db.prepare("UPDATE ai_tasks SET status = 'reconciling', stage = '上游状态待核对', error = '服务重启时提交状态未知，请联系管理员核对' WHERE status = 'running'").run()
   }).immediate()
+  for (const row of db.prepare("SELECT DISTINCT s.task_id FROM super_res_segments s JOIN ai_tasks t ON t.id = s.task_id WHERE t.status = 'success'").all()) {
+    try { cleanupSuperResolutionSegments(row.task_id) } catch (error) { console.warn('[超分] 清理已完成片段失败:', error.message) }
+  }
+  for (const row of db.prepare("SELECT w.task_id FROM human_voice_workflows w JOIN ai_tasks t ON t.id = w.task_id WHERE t.status = 'success'").all()) {
+    try { cleanupHumanVoiceWorkflow(row.task_id) } catch (error) { console.warn('[数字人] 清理临时片段失败:', error.message) }
+  }
   scheduleQueue()
 }
 
 // 数字人视频可选接入用户授权的 IndexTTS 音色及后期字幕。
 // 后处理失败时保留已生成的画面，并向用户展示未完成的部分。
 async function postProcess(module, params, result, context) {
-  if (module !== 'human' || !result?.videos?.length || !params.text) return result
+  if (module !== 'human' || result?.humanPipeline === 'audio-first' || !result?.videos?.length || !params.text) return result
   const wantsSubtitle = params.subtitle?.enabled !== false
   const voiceId = params.voiceProfileId || null
-  if (!wantsSubtitle && !voiceId) return result
   const style = params.subtitle?.style || DEFAULT_SUBTITLE_STYLE
   const warnings = [...(result.warnings || [])]
   let dubbedCount = 0
   let burnedCount = 0
   for (const v of result.videos) {
     let subtitleBurned = false
+    const textCheck = await inspectVideoText(v.url, { includeTop: true, onStage: context.onStage })
+    v.qualityCheck = textCheck
+    result.qualityCheck = textCheck
+    const checkWarning = textCheckWarning(textCheck, wantsSubtitle)
+    if (checkWarning) warnings.push(checkWarning)
     if (voiceId) {
       context.onStage('正在合成配音')
       try {
-        const dubbed = await dubVideo(context.ownerId, { videoUrl: v.url, voiceId, text: params.text, mode: 'replace', speed: 1, lang: 'zh', subtitle: wantsSubtitle })
-        Object.assign(v, dubbed.videos[0], { dubbed: true, subtitleBurned: !!dubbed.subtitle?.burned })
+        const dubbed = await dubVideo(context.ownerId, { videoUrl: v.url, voiceId, text: params.text, mode: 'replace', speed: 1, lang: 'zh', subtitle: wantsSubtitle, lipSync: params.lipSync === true }, { ...context, frameTextCheck: textCheck, textCheckWarningHandled: true })
+        Object.assign(v, dubbed.videos[0], { dubbed: true, subtitleBurned: !!dubbed.subtitle?.burned, lipSynced: !!dubbed.lipSync?.applied })
+        warnings.push(...(dubbed.warnings || []))
         dubbedCount++
         subtitleBurned = !!dubbed.subtitle?.burned
       } catch (error) {
@@ -293,7 +354,7 @@ async function postProcess(module, params, result, context) {
         warnings.push(`配音未完成，已保留生成画面：${error.message}`)
       }
     }
-    if (wantsSubtitle && !subtitleBurned) {
+    if (wantsSubtitle && !subtitleBurned && textCheck.status === 'clear') {
       context.onStage('正在添加字幕')
       try {
         Object.assign(v, await burnSubtitles(v.url, { text: params.text, style, burn: true }))
@@ -307,6 +368,8 @@ async function postProcess(module, params, result, context) {
   if (wantsSubtitle && !burnedCount) warnings.push('字幕叠加未完成')
   result.subtitle = wantsSubtitle ? { enabled: burnedCount > 0, burnedCount, timing: 'estimated' } : { enabled: false }
   result.voice = voiceId ? { provider: 'IndexTTS', dubbed: dubbedCount > 0 } : null
+  result.lipSync = { requested: params.lipSync === true, applied: params.lipSync === true && result.videos.some((video) => video.lipSynced === true) }
+  if (params.lipSync && !dubbedCount) warnings.push('配音未完成，口型同步也未执行')
   result.warnings = warnings
   return result
 }
@@ -330,7 +393,7 @@ async function withCovers(result) {
 // 模块 → 素材分类名（生成物自动归档到资产库）
 const MODULE_CATEGORY = {
   replica: 'AI爆款复刻', factory: 'AI梦工厂', studio: 'AI商拍',
-  materialField: 'AI素材场', human: '数字人', mix: '智能混剪', videoJoin: '视频拼接', subtitleEdit: '字幕视频', analysis: 'AI解析', voiceDub: '配音视频',
+  materialField: 'AI素材场', human: '数字人', mix: '智能混剪', videoJoin: '视频拼接', subtitleEdit: '字幕视频', analysis: 'AI解析', voiceDub: '配音视频', superRes: '视频画质增强', threeSecond: '三秒开场',
 }
 
 async function finishTask(taskId, result, module) {
@@ -387,12 +450,18 @@ async function finishTask(taskId, result, module) {
     if (row) toIndex.push(row)
   }
   }).immediate()
+  if (module === 'superRes' && getTask(taskId)?.status === 'success') {
+    try { cleanupSuperResolutionSegments(taskId) } catch (error) { console.warn('[超分] 清理已完成片段失败:', error.message) }
+  }
+  if (module === 'human' && getTask(taskId)?.status === 'success' && (result?.humanPipeline === 'audio-first' || db.prepare('SELECT 1 FROM human_product_workflows WHERE task_id = ?').get(taskId))) {
+    try { cleanupHumanVoiceWorkflow(taskId) } catch (error) { console.warn('[数字人] 清理临时片段失败:', error.message) }
+  }
   for (const row of toIndex) indexMaterial(row)
 }
 
 // ---------- 真实AI执行器 ----------
 async function runRealTask(module, params, tpl, context) {
-  if (module === 'voiceDub') return dubVideo(context.ownerId, params)
+  if (module === 'voiceDub') return dubVideo(context.ownerId, params, context)
   if (module === 'videoJoin') {
     context.onStage('正在按顺序拼接视频')
     const video = await concatenateVideos(params.videoUrls)
@@ -403,18 +472,26 @@ async function runRealTask(module, params, tpl, context) {
   }
   if (module === 'subtitleEdit') {
     context.onStage('正在添加校对后的字幕')
-    const rendered = await burnSubtitles(params.videoUrl, { segments: params.segments, style: params.style })
+    const rendered = await burnSubtitles(params.videoUrl, { segments: params.segments, style: params.style, coverMode: params.coverMode || 'none' })
     if (!rendered.subtitleBurned) throw new Error('字幕未能添加到视频')
     const video = await probeMedia(localMediaPath(rendered.url))
     return { title: '字幕视频', engine: 'real', provider: 'ffmpeg', generatedAt: new Date().toISOString(), images: [],
       videos: [{ name: '字幕视频', ...video, url: rendered.url, cover: rendered.cover, resolution: rendered.resolution }],
-      subtitle: { timing: 'user', segments: params.segments },
-      warnings: ['字幕已按设定时间叠加；画面里原有的硬字幕不会被去除。'] }
+      subtitle: { timing: 'user', segments: params.segments, coverMode: params.coverMode || 'none' },
+      warnings: [params.coverMode && params.coverMode !== 'none' ? '底部遮挡条会遮住对应区域的画面；旧字幕若不在该区域仍会可见，并非无痕去字。' : '字幕已按设定时间叠加；画面里原有的硬字幕不会被去除。'] }
   }
   if (!realEnabled()) throw new Error('真实AI未启用')
   if (module === 'videoAnalysis') return analyzeVideo(params, context.onStage)
+  if (module === 'subtitleTranscribe') return transcribeSubtitles(params.videoUrl, context.onStage)
+  if (module === 'superRes') return enhanceVideo(params.videoUrl, { ...context, provider: params.provider })
 
   switch (module) {
+    case 'threeSecond': {
+      const hooks = { visual: '视觉吸引', pain: '疑问引入', counter: '反差画面', number: '节奏鲜明', suspense: '悬念开场', identity: '人物代入', benefit: '突出已知卖点' }
+      const prompt = `创作短视频开场，形式为${hooks[params.hookType] || hooks.visual}。用户提供的创意：${params.prompt}。画面主体明确、节奏利落；只使用用户提供的产品信息，不虚构功效、认证、价格或销量。尽量不生成画面文字、字幕或水印。`
+      const result = await genVideoByFrames({ prompt, firstFrame: params.firstFrame, size: h3Size('9:16', params.resolution || '540P'), duration: 3, context })
+      return { ...result, title: '三秒开场视频', warnings: ['由模型生成后截取前 3 秒；画面和商品文字可能有误，不保证播放量或完播率。'] }
+    }
     case 'replica': {
       const { reference, prompt } = await prepareReferenceVideo(params, context)
       const marked = db.prepare("UPDATE ai_tasks SET params = json_set(params, '$.referencePhase', 'generating') WHERE id = ? AND status = 'running'").run(context.taskId)
@@ -423,8 +500,10 @@ async function runRealTask(module, params, tpl, context) {
       const result = Number(params.duration) > 8
         ? await generateLongVideo(context.taskId, { prompt, duration: Number(params.duration), ratio: params.ratio, resolution: params.resolution, refs })
         : await genVideoByFrames({ prompt, firstFrame: params.firstFrame, duration: Number(params.duration), size: h3Size(params.ratio, params.resolution), context })
-      return { ...result, title: '参考文案生成视频', reference,
-        warnings: [...(reference.warnings || []), '参考识别出的语音、文字及疑似画面切换节奏；未理解或复制画面内容、动作和音乐，识别结果可能有误。'] }
+      return { ...result, title: reference.visualSummary ? '参考视频生成新视频' : '参考文案生成视频', reference,
+        warnings: [...(reference.warnings || []), reference.visualSummary
+          ? '参考语音、文字和少量抽样画面生成新视频；不会逐帧复制原片，动作、音乐和商品细节可能不同，识别可能有误。'
+          : '参考识别出的语音、文字及疑似画面切换节奏；未理解或复制画面内容、动作和音乐，识别结果可能有误。'] }
     }
     case 'factory':
       if (Number(params.duration) > 8) return generateLongVideo(context.taskId, {
@@ -445,19 +524,33 @@ async function runRealTask(module, params, tpl, context) {
     case 'human': {
       // 场景约束口播：有首帧 → 首帧图生视频（i2av，形象/场景一致性最强）；
       // 无首帧 → 场景+形象约束的文生视频（t2av）
+      // 商品图没有描述时先让视觉模型看一眼，避免模型自己编道具
+      let productDesc = String(params.productDesc || '').trim()
+      if (!productDesc && params.productImage) {
+        try { productDesc = await describeProductImage(params.productImage) || '' } catch { productDesc = '' }
+      }
       const prompt = buildHumanScenePrompt({
         text: params.text,
         sceneKey: params.sceneKey,
         sceneDesc: params.sceneDesc,
         persona: params.persona || null,
         humanName: params.humanName,
+        productDesc,
       })
-      const size = h3Size('9:16', '720P')
+      if (params.workflow === 'audio-first') return generateHumanVideo(params, context, prompt)
+      const size = h3Size('9:16', params.resolution || '720P')
       // 时长随文案自动推算（之前固定 124 帧≈5s，长文案念不完导致配音截断/成片无声）
       const numFrames = pickFramesForText(params.text)
       // H3 音视频氛围：安静室内、无背景音乐无人声，保证 TTS 配音干净可混
       const audioOpts = { soundscape: '极安静的专业演播室，轻微空间底噪，无任何背景音乐，无任何人声', music: '无' }
-      return genVideoByFrames({ firstFrame: params.firstFrame, prompt, size, frames: numFrames, audioOpts, context })
+      const reference = await prepareHumanProductFrame(params, context, prompt)
+      const currentProviderId = db.prepare('SELECT provider_task_id FROM ai_tasks WHERE id = ?').get(context.taskId)?.provider_task_id || null
+      const result = await genVideoByFrames({ firstFrame: reference.url, prompt, size, frames: numFrames, audioOpts, context: { ...context, resumeTaskId: currentProviderId } })
+      if (reference.usedProduct) {
+        result.productReference = { usedImage: true }
+        result.warnings = [...(result.warnings || []), '已将商品图加入首帧作为画面参考；生成过程可能改变商品细节、文字或标识，请检查成片。']
+      }
+      return result
     }
     case 'humanAsset': {
       // 创作链路资产：scene=场景背景 / persona=IP形象 / firstFrame=人物+场景合成首帧
@@ -551,6 +644,8 @@ function normalizeVideoResult(out, prompt) {
       width: v.width,
       height: v.height,
       resolution: `${v.width}x${v.height}`,
+      fps: v.fps,
+      hasAudio: v.hasAudio,
     }))
   }
   if (out.images?.length) {
@@ -597,6 +692,8 @@ export function retryTask(id) {
     const task = db.prepare('SELECT * FROM ai_tasks WHERE id = ?').get(id)
     if (!task) throw new Error('任务不存在')
     if (task.status === 'reconciling') {
+      if (task.stage === '口型状态待核对') throw new Error('口型同步上游状态未确认，请联系管理员核对后再创建任务')
+      if (task.stage === '配音状态待核对') throw new Error('配音上游状态未确认，请联系管理员核对后再创建任务')
       if (task.module === 'replica' && !task.provider_task_id) {
         const phase = JSON.parse(task.params || '{}').referencePhase
         if (phase === 'analyzing' || phase === 'ready') {
@@ -623,9 +720,11 @@ export function retryTask(id) {
 
 // 仍在执行或等待核对的任务需要保留上游标识，不能删除。
 export function deleteTask(id) {
-  const task = db.prepare('SELECT status, result FROM ai_tasks WHERE id = ?').get(id)
+  const task = db.prepare('SELECT status, result, module FROM ai_tasks WHERE id = ?').get(id)
   if (task && !['success', 'failed', 'canceled'].includes(task.status)) throw new Error('进行中或待核对的任务不能删除')
+  if (task?.module === 'human' && (db.prepare('SELECT 1 FROM human_voice_workflows WHERE task_id = ?').get(id) || db.prepare('SELECT 1 FROM human_product_workflows WHERE task_id = ?').get(id))) cleanupHumanVoiceWorkflow(id)
   const segments = db.prepare('SELECT result_url, first_frame_url FROM long_video_segments WHERE task_id = ?').all(id)
+  const superSegments = db.prepare('SELECT input_url, result_url FROM super_res_segments WHERE task_id = ?').all(id)
   const r = db.prepare('DELETE FROM ai_tasks WHERE id = ?').run(id)
   if (task?.result) {
     try {
@@ -636,6 +735,7 @@ export function deleteTask(id) {
     } catch { /* result 非 JSON 忽略 */ }
   }
   cleanupFiles(segments.flatMap((segment) => [segment.result_url, segment.first_frame_url]))
+  cleanupFiles(superSegments.flatMap((segment) => [segment.input_url, segment.result_url]))
   return r
 }
 
@@ -654,6 +754,7 @@ export async function cancelTask(id) {
   }
   if (!['pending', 'running', 'reconciling'].includes(task.status)) throw new Error('当前任务状态不支持取消')
   if (task.module === 'voiceDub') throw new Error('配音已开始，暂不能取消')
+  if (task.module === 'superRes' && isSeedVRDirectId(task.provider_task_id)) throw new Error('超分模型任务已开始，服务暂不支持取消')
   if (!task.provider_task_id) throw new Error('任务正在提交或处理结果，暂不能取消')
   const providerId = task.provider_task_id
   const upstream = await mgCancelTask(providerId)

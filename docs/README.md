@@ -40,10 +40,10 @@
 node docs/tests/parse-routes.mjs
 
 # 2. 主验证（302 项，约 5~8 分钟，含 AI 任务观测）
-TEST_PWD='Fang89089407' node docs/tests/full-verify.mjs
+TEST_PWD='your-test-password' node docs/tests/full-verify.mjs
 
 # 3. 性能压测
-TEST_PWD='Fang89089407' node docs/tests/perf-check.mjs
+TEST_PWD='your-test-password' node docs/tests/perf-check.mjs
 
 # 4. 重新生成 API 清单文档
 node docs/tests/gen-api-doc.mjs

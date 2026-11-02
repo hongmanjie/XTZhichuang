@@ -34,7 +34,7 @@ async function test(name, fn) {
 
 async function main() {
   // 登录
-  const login = await req('POST', '/login', { account: '18008643374', password: process.env.TEST_PWD })
+  const login = await req('POST', '/login', { account: 'demo-admin', password: process.env.TEST_PWD })
   if (login.code !== 0) {
     console.error('登录失败:', login.message)
     process.exit(1)

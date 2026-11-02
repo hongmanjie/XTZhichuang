@@ -6,19 +6,24 @@
 //  - ES 不可用时由调用方降级 SQLite
 // ============================================================
 import { Client } from '@elastic/elasticsearch'
-import { realEnabled, EMBED_DIMS, embedTexts, embedQuery, rerankDocs } from './aiProviders.js'
+import db from '../db.js'
+import { realEnabled, EMBED_DIMS, embedTexts, embedQuery, embedImage, supportsImageEmbeddings, rerankDocs } from './aiProviders.js'
+import { embeddingProvider } from './embeddingProvider.js'
 
 const ES_NODE = process.env.ES_NODE || 'http://localhost:9200'
 
 export const esClient = new Client({ node: ES_NODE })
 
+// Different embedding pipelines may produce incompatible vectors even at the same dimension.
+const INDEX_PREFIX = embeddingProvider() === 'direct' ? 'yimetai_vl_direct_v1' : 'yimetai'
 export const INDICES = {
-  materials: process.env.ES_INDEX_MATERIALS || 'yimetai_materials',
-  scripts: process.env.ES_INDEX_SCRIPTS || 'yimetai_scripts',
-  hot: process.env.ES_INDEX_HOT || 'yimetai_hot_videos',
+  materials: process.env.ES_INDEX_MATERIALS || INDEX_PREFIX + '_materials',
+  scripts: process.env.ES_INDEX_SCRIPTS || INDEX_PREFIX + '_scripts',
+  hot: process.env.ES_INDEX_HOT || INDEX_PREFIX + '_hot_videos',
 }
 
 const EMBED_FIELD = 'embedding'
+const IMAGE_EMBED_FIELD = 'image_embedding'
 
 // 索引 mappings（含语义向量字段）
 const MAPPINGS = {
@@ -40,6 +45,7 @@ const MAPPINGS = {
       owner_id: { type: 'integer' },
       created_at: { type: 'date', format: 'yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||epoch_millis' },
       [EMBED_FIELD]: { type: 'dense_vector', dims: EMBED_DIMS, index: true, similarity: 'cosine' },
+      [IMAGE_EMBED_FIELD]: { type: 'dense_vector', dims: EMBED_DIMS, index: true, similarity: 'cosine' },
     },
   },
   scripts: {
@@ -77,8 +83,14 @@ let esAvailable = null
 export async function initES() {
   try {
     const health = await esClient.cluster.health({}, { requestTimeout: 3000 })
+    const clusterStatus = health?.status || health?.body?.status
+    if (clusterStatus === 'red') {
+      esAvailable = false
+      console.warn('[ES] 集群状态为 red，搜索暂时降级，等待分片恢复')
+      return false
+    }
     esAvailable = true
-    console.log(`[ES] 集群状态: ${health.status}`)
+    console.log(`[ES] 集群状态: ${clusterStatus}`)
     for (const [name, indexName] of Object.entries(INDICES)) {
       // 兼容 8.x（返回 boolean）与 7.x（返回 { statusCode/body }）客户端
       const existsResp = await esClient.indices.exists({ index: indexName })
@@ -107,28 +119,22 @@ export async function initES() {
           }
         }
       } else {
-        // 维度变更检测（如 bge-m3 1024 → qwen3-vl-embedding 2048）：不符则删除重建
+        // 维度变更检测：不符时保留旧索引并降级，需人工创建新索引并重建数据
         try {
           const mapping = await esClient.indices.getFieldMapping({
             index: indexName,
-            fields: [EMBED_FIELD],
+            fields: [EMBED_FIELD, ...(name === 'materials' ? [IMAGE_EMBED_FIELD] : [])],
           })
           // 兼容 8.x（直接返回 body）与 7.x 客户端
           const body = mapping?.body || mapping
-          const fields = Object.values(body || {})[0]?.mappings?.[EMBED_FIELD]?.mapping?.[EMBED_FIELD]
-          const curDims = fields?.dims
-          if (curDims && curDims !== EMBED_DIMS) {
-            console.warn(`[ES] 索引 ${indexName} 向量维度 ${curDims} != ${EMBED_DIMS}，自动删除重建（需重新索引数据）`)
-            await esClient.indices.delete({ index: indexName })
-            await esClient.indices.create({
-              index: indexName,
-              body: {
-                mappings: MAPPINGS[name],
-                settings: { number_of_shards: 1, number_of_replicas: 0 },
-              },
-            })
-            console.log(`[ES] 已按 ${EMBED_DIMS} 维重建索引: ${indexName}`)
-            continue
+          const mappings = Object.values(body || {})[0]?.mappings || {}
+          for (const field of [EMBED_FIELD, ...(name === 'materials' ? [IMAGE_EMBED_FIELD] : [])]) {
+            const curDims = mappings[field]?.mapping?.[field]?.dims
+            if (curDims && curDims !== EMBED_DIMS) {
+              console.error(`[ES] 索引 ${indexName} 的 ${field} 维度 ${curDims} 与 ${EMBED_DIMS} 不一致，已保留原索引并降级；请使用独立索引重建数据`)
+              esAvailable = false
+              return false
+            }
           }
         } catch (e) {
           // 字段映射查询失败（如旧索引无该字段）不阻断
@@ -140,7 +146,7 @@ export async function initES() {
         try {
           await esClient.indices.putMapping({
             index: indexName,
-            properties: { [EMBED_FIELD]: MAPPINGS[name].properties[EMBED_FIELD] },
+            properties: { [EMBED_FIELD]: MAPPINGS[name].properties[EMBED_FIELD], ...(name === 'materials' ? { [IMAGE_EMBED_FIELD]: MAPPINGS[name].properties[IMAGE_EMBED_FIELD] } : {}) },
           })
         } catch {}
       }
@@ -149,6 +155,24 @@ export async function initES() {
   } catch (e) {
     esAvailable = false
     console.warn(`[ES] 连接失败，搜索功能将降级为SQLite查询: ${e.message}`)
+    return false
+  }
+}
+
+// A connected cluster can later become red or unreachable (for example, a full disk).
+export async function refreshESHealth() {
+  if (!isESAvailable()) return initES()
+  try {
+    const health = await esClient.cluster.health({}, { requestTimeout: 3000 })
+    if ((health?.status || health?.body?.status) === 'red') {
+      esAvailable = false
+      console.warn('[ES] 集群状态为 red，搜索已降级')
+      return false
+    }
+    return true
+  } catch (error) {
+    esAvailable = false
+    console.warn('[ES] 连接中断，搜索已降级: ' + error.message)
     return false
   }
 }
@@ -178,28 +202,43 @@ function buildEmbedText(index, doc) {
   return parts.filter(Boolean).join(' ').slice(0, 4000)
 }
 
-// 为文档计算向量（失败不阻断索引写入）
+// 文本与图片分别编码，单项失败时仍可按其他字段检索。
 async function withEmbedding(index, doc) {
   if (!realEnabled()) return doc
-  try {
-    const text = buildEmbedText(index, doc)
-    if (!text.trim()) return doc
-    const [vec] = await embedTexts([text])
-    return { ...doc, [EMBED_FIELD]: vec }
-  } catch (e) {
-    console.warn(`[ES] 向量化失败(仅关键词可检索): ${e.message}`)
-    return doc
+  const enriched = { ...doc }
+  const text = buildEmbedText(index, doc)
+  if (text.trim()) {
+    try { const [vector] = await embedTexts([text]); enriched[EMBED_FIELD] = vector }
+    catch (e) { console.warn(`[ES] 文本向量化失败: ${e.message}`) }
   }
+  const visualUrl = index === 'materials' && supportsImageEmbeddings() ? (doc.type === 'image' ? doc.url : doc.cover) : null
+  if (visualUrl) {
+    try { enriched[IMAGE_EMBED_FIELD] = await embedImage(visualUrl) }
+    catch (e) { console.warn(`[ES] 图片向量化失败: ${e.message}`) }
+  }
+  return enriched
 }
 
-// 索引文档
-export async function indexDoc(index, doc) {
-  if (!isESAvailable()) return
+// The backfill path may use create-only writes to avoid overwriting concurrent updates.
+export async function indexDoc(index, doc, { onlyIfMissing = false } = {}) {
+  if (!isESAvailable()) return false
+  // Embedding is asynchronous. A user can delete an uploaded image while it
+  // is being indexed, so check SQLite both before and after the ES write.
+  const stillExists = () => index !== 'materials' || Boolean(db.prepare('SELECT 1 FROM materials WHERE id = ?').get(doc.id))
   try {
+    if (!stillExists()) return false
     const enriched = await withEmbedding(index, doc)
-    await esClient.index({ index: INDICES[index], id: String(doc.id), document: enriched, refresh: true })
+    if (!stillExists()) return false
+    await esClient.index({ index: INDICES[index], id: String(doc.id), document: enriched, refresh: true, ...(onlyIfMissing ? { op_type: 'create' } : {}) })
+    if (!stillExists()) { await deleteDoc(index, doc.id); return false }
+    return true
   } catch (e) {
+    if (onlyIfMissing && (e.statusCode === 409 || e.meta?.statusCode === 409)) {
+      if (!stillExists()) { await deleteDoc(index, doc.id); return false }
+      return true
+    }
     console.warn(`[ES] 索引失败: ${e.message}`)
+    return false
   }
 }
 
@@ -236,12 +275,14 @@ export async function searchDocs(index, { keyword, filters = [], from = 0, size 
     }
   }
   if (queryVector) {
-    should.push({
-      knn: { field: EMBED_FIELD, query_vector: queryVector, num_candidates: 100, k: knnK },
-    })
+    should.push({ knn: { field: EMBED_FIELD, query_vector: queryVector, num_candidates: 100, k: knnK } })
+    if (index === 'materials' && supportsImageEmbeddings()) {
+      should.push({ knn: { field: IMAGE_EMBED_FIELD, query_vector: queryVector, num_candidates: 100, k: knnK } })
+    }
   }
 
   const body = {
+    _source: { excludes: [EMBED_FIELD, IMAGE_EMBED_FIELD] },
     from,
     size: queryVector ? Math.max(size, 20) : size, // 混合召回多取一些，便于精排
     query: {

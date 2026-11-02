@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import { initES, isESAvailable } from './services/esService.js'
+import { initES, isESAvailable, refreshESHealth } from './services/esService.js'
 import { realEnabled, MODEL_CATALOG } from './services/aiProviders.js'
 import db from './db.js'
 import { backfillVideoCovers } from './services/videoCover.js'
@@ -57,8 +57,6 @@ const unavailableOperations = {
   '/highlight/editing/clip/save/material': '高光片段来源尚未核实，暂不能保存',
   '/highlight/editing/live/stop': '直播平台控制接口尚未接入',
   '/highlight/editing/share/parse': '直播链接解析尚未接入',
-  '/three/second/make/video': '三秒视频生成流程尚未接入',
-  '/super/resolution/create/new': 'AI 视频修复模型尚未接入',
   '/video/scene/analysis/submit': '真实视频理解模型尚未接入',
   '/video/scene/analysis/retry': '真实视频理解模型尚未接入',
   '/tools/erase/submit': '图片局部修复模型尚未接入',
@@ -196,4 +194,6 @@ app.listen(PORT, () => {
 
 bootstrap().then((ok) => {
   console.log(`[ES] 初始化完成: ${ok ? '已连接 (elasticsearch:9200)' : '未连接（搜索降级模式）'}`)
+  const timer = setInterval(() => { void refreshESHealth() }, 30000)
+  timer.unref?.()
 })

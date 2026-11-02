@@ -126,6 +126,7 @@ export default function VideoGoldTime() {
       {/* ============ 案例展示 ============ */}
       {tab === 'cases' && (
         <>
+          <p className="mt-4 text-center text-xs text-[#9d8fd0]">以下为创作灵感示意图和提示词，不是本系统生成的视频样片。</p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
             {CATS.map((c) => (
               <button

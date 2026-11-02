@@ -16,6 +16,9 @@ import { pipeline } from 'stream/promises'
 import dotenv from 'dotenv'
 import { FFMPEG, localMediaPath, probeImage, probeMedia, trimVideo } from './mediaTools.js'
 import { validateH3Frames, validateH3Size } from './h3Spec.js'
+import { embeddingProvider, directEmbedTexts, directEmbedImage, supportsImageEmbeddings } from './embeddingProvider.js'
+import { withSharedH3Lock } from './h3SharedLock.js'
+export { supportsImageEmbeddings }
 
 // 关键：本模块被静态 import 时可能早于 index.js 的 dotenv.config()，
 // 必须在读取任何 process.env 前先加载 .env（dotenv 不覆盖已存在变量，幂等安全）
@@ -55,6 +58,12 @@ async function requireModelGateConnection() {
     error.cause = cause
     throw error
   }
+}
+
+export async function modelGateStatus() {
+  if (!mgEnabled()) return { available: false, reason: 'not_configured' }
+  try { await requireModelGateConnection(); return { available: true, reason: 'reachable' } }
+  catch { return { available: false, reason: 'unreachable' } }
 }
 
 // ---------- 通用 HTTP ----------
@@ -113,6 +122,27 @@ function mgHeaders(idempotencyKey = crypto.randomUUID()) {
     Authorization: `Bearer ${MG_KEY}`,
     'Idempotency-Key': idempotencyKey,
   }
+}
+
+// IndexTTS synthesis through ModelGate. Voice enrollment remains on the
+// separately configured voice service until the gateway exposes that API.
+export async function mgSpeech({ input, voice, speed = 1, lang = 'zh' }) {
+  if (!mgEnabled()) { const error = new Error('语音网关尚未启用或配置'); error.code = 'MG_CONNECTION_UNAVAILABLE'; throw error }
+  await requireModelGateConnection()
+  const response = await fetch(`${MG_BASE}/infer`, {
+    method: 'POST', headers: { ...mgHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'IndexTTS-2.5', input, voice, response_format: 'wav', speed, extra_params: { lang } }),
+    signal: AbortSignal.timeout(300000), redirect: 'error',
+  })
+  if (!response.ok) {
+    let message = `语音网关返回 HTTP ${response.status}`
+    try { const body = await response.json(); message = body?.error?.message || message } catch {}
+    const error = new Error(String(message).slice(0, 250))
+    error.status = response.status
+    if (response.status >= 500 || [408, 409].includes(response.status)) error.code = 'TTS_UNCERTAIN'
+    throw error
+  }
+  return response
 }
 
 // 统一解析响应体：兼容 { status, result } 与裸 OpenAI 风格
@@ -252,18 +282,28 @@ export async function mgASRDetails(audioSrc, { format } = {}) {
     const m = (String(audioSrc).split('?')[0].match(/\.(\w{2,5})$/) || [])[1]
     fmt = (m || 'wav').toLowerCase()
   }
-  const { status, data } = await httpJson(`${MG_BASE}/infer`, {
-    headers: mgHeaders(),
-    body: { model: MG_ASR_MODEL, audio_data: b64, audio_format: fmt },
-    timeoutMs: 180000,
-  })
+  await requireModelGateConnection()
+  let response
+  try {
+    response = await httpJson(`${MG_BASE}/infer`, {
+      headers: mgHeaders(), body: { model: MG_ASR_MODEL, audio_data: b64, audio_format: fmt }, timeoutMs: 180000,
+    })
+  } catch (cause) {
+    const error = new Error('语音识别响应中断，任务是否执行需核对，避免重复提交')
+    error.code = 'ASR_UNCERTAIN'; error.cause = cause; throw error
+  }
+  const { status, data } = response
   const r = mgResult(data)
   // 适配 FunASR 结构：{ prediction: { results: [{ text, start_time, end_time }] } }
   const segs = r?.prediction?.results
   let text
   if (Array.isArray(segs)) text = segs.map((s) => s?.text || '').join('').trim()
   else text = r?.text ?? r?.transcript
-  if (status !== 200 || text === undefined) throw mgErr('ModelGate转写失败', status, data)
+  if (status !== 200 || text === undefined) {
+    const error = mgErr('ModelGate转写失败', status, data)
+    if (status >= 500 || [408, 409].includes(status)) error.code = 'ASR_UNCERTAIN'
+    throw error
+  }
   return {
     text: String(text),
     segments: Array.isArray(segs) ? segs.map((segment) => ({ text: String(segment.text || ''), start: Number.isFinite(Number(segment.start_time)) ? Number(segment.start_time) : null, end: Number.isFinite(Number(segment.end_time)) ? Number(segment.end_time) : null })) : [],
@@ -446,22 +486,79 @@ export async function mgImageGen({ prompt, negative_prompt, size = [1024, 1024],
 }
 
 // ---------- 8b. MiniMax-H3 音视频生成（202 异步任务，约5~25分钟） ----------
-// MiniMax-H3 要求三段式 JSON prompt（集成描述/环境声/配乐）
-export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '' } = {}) {
-  return JSON.stringify({
-    integrated_multimodal_description: prompt,
-    overall_soundscape: soundscape || '与画面内容匹配的真实环境音，自然克制，突出主体动作声',
-    non_diegetic_music: music || '轻快现代的电商风格背景音乐，节奏与画面剪辑点匹配，音量不抢主体',
-  })
+// MiniMax-H3 官方请求格式是三段式纯文本前缀，不是 JSON。
+// 依据 scripts/minimax_h3/server/post_t2av.py：
+//   integrated_multimodal_description: ...
+//   overall_soundscape: ...
+//   non_diegetic_music: ...
+// 之前用 JSON.stringify 包成 {"...":"..."}，模型看到的是带引号的大括号，
+// 字段划分不清晰，音景和配乐容易跑偏。
+//
+// 画幅必须写进描述：只给 size 不给构图说明时，模型会按横屏构图往竖屏里塞，
+// 结果是人物和商品并排、两侧被裁（768x1344 实测复现）。
+export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '', size } = {}) {
+  let frame = ''
+  if (Array.isArray(size) && size.length === 2 && Number.isFinite(size[0]) && Number.isFinite(size[1])) {
+    const [height, width] = size
+    frame = height > width
+      ? '竖屏 9:16 构图，主体位于画面中部，头顶和脚下留出空间，避免左右裁切'
+      : height < width
+        ? '横屏 16:9 构图，主体居中，左右留出空间'
+        : '方形 1:1 构图，主体居中'
+  }
+  // 官方规范：首个镜头以 [Shot 1] 开头，风格与初始构图紧跟在后面。
+  // 调用方已经写了 [Shot N] 时不重复加。
+  const head = /\[shot\s*1\]/i.test(prompt) ? '' : '[Shot 1] '
+  const description = `${head}${frame ? `${frame}。` : ''}${prompt}`
+  return [
+    `integrated_multimodal_description: ${description}`,
+    `overall_soundscape: ${soundscape || '与画面内容匹配的真实环境音，自然克制，突出主体动作声'}`,
+    `non_diegetic_music: ${music || '轻快现代的电商风格背景音乐，节奏与画面剪辑点匹配，音量不抢主体'}`,
+  ].join('\n')
 }
 
-export async function mgVideoGen({ prompt, soundscape, music, task = 't2av', size = [896, 512], num_frames = 124, fps = 24, imageSrc, lastFrameSrc, model = MG_VIDEO_MODEL, targetDuration, idempotencyKey, resumeTaskId, onSubmitted, onProgress } = {}) {
+// H3 每张卡的常驻显存已经接近满载（空载就占 13 GiB，峰值 22 GiB+），
+// 两个请求同时打到同一个 worker 必然 OOM。这里对所有调用做全局串行，
+// 排队时间可预期，比随机失败重试更省时间。
+let h3Slot = Promise.resolve()
+function withH3Slot(run) {
+  const next = h3Slot.then(run, run)
+  h3Slot = next.then(() => {}, () => {})
+  return next
+}
+
+export function mgVideoGen(params) {
+  return withH3Slot(() => withSharedH3Lock(() => mgVideoGenInner(params), {
+    idempotencyKey: params?.idempotencyKey,
+    onWait: () => params?.onProgress?.('queued'),
+  }))
+}
+
+// H3 的 runner 不接受 negative_prompt 字段，只能写进正向提示词。
+// 官方提示词规范只描述“画面里有什么”，不列举“不要什么”——列举这些词
+// 反而会把字幕、水印、logo 这些概念带进模型注意力。这里改成一句明确陈述。
+export const DEFAULT_VIDEO_NEGATIVE = 'No on-screen text, captions, subtitles or watermarks appear in any frame'
+
+async function mgVideoGenInner({ prompt, soundscape, music, task = 't2av', size = [896, 512], num_frames = 124, fps = 24, imageSrc, lastFrameSrc, model = MG_VIDEO_MODEL, targetDuration, idempotencyKey, resumeTaskId, negativePrompt, onSubmitted, onProgress } = {}) {
   const frames = validateH3Frames(num_frames)
   const validatedSize = validateH3Size(size)
+  // 双卡实测：720P 192 帧起 OOM、540P 345 帧起 OOM。提交前拦下，
+  // 否则要等好几分钟才失败，还会在上游留下显存碎片。
+  const isLarge = Math.max(validatedSize[0], validatedSize[1]) >= 1280
+  const frameCap = isLarge ? 175 : 311
+  if (frames > frameCap) {
+    throw new Error(isLarge
+      ? '720P 单段最多 175 帧（约 7.3 秒），请缩短时长或改用 540P'
+      : '540P 单段最多 311 帧（约 13 秒），请缩短时长')
+  }
   if (fps !== 24) throw new Error('当前视频模型仅支持 24 帧/秒')
   const expected = { t2av: [false, false], i2av: [true, false], l2av: [false, true], fl2av: [true, true] }[task]
   if (!expected || expected[0] !== !!imageSrc || expected[1] !== !!lastFrameSrc) throw new Error('首尾帧与视频生成模式不匹配')
-  const body = { model, task, prompt: buildMiniMaxPrompt(prompt, { soundscape, music }), size: validatedSize, num_frames: frames, fps }
+  // H3 的 t2av runner 会拒绝 negative_prompt 字段（"does not support request fields"），
+  // 只能把负面约束写进正向提示词。
+  const guard = String(negativePrompt || DEFAULT_VIDEO_NEGATIVE).trim()
+  const finalPrompt = guard ? `${prompt}。${guard}` : prompt
+  const body = { model, task, prompt: buildMiniMaxPrompt(finalPrompt, { soundscape, music, size: validatedSize }), size: validatedSize, num_frames: frames, fps }
   if (!resumeTaskId && imageSrc) body.image_path = await toB64(imageSrc)
   if (!resumeTaskId && lastFrameSrc) body.last_frame_path = await toB64(lastFrameSrc)
   let taskId = resumeTaskId
@@ -514,19 +611,73 @@ export async function mgVideoGen({ prompt, soundscape, music, task = 't2av', siz
   }
 }
 
+// SeedVR2's current gateway accepts an MP4 data URL in `file`; only its default
+// output size has been verified. Keep the provider id to resume without resubmission.
+export async function mgVideoRestore({ videoUrl, idempotencyKey, resumeTaskId, onSubmitted, onProgress } = {}) {
+  const model = 'SeedVR2-3B'
+  let taskId = resumeTaskId
+  if (!taskId) {
+    const file = localMediaPath(videoUrl)
+    if (!file || !fs.existsSync(file)) throw new Error('待增强视频不存在')
+    if (fs.statSync(file).size > 10 * 1024 * 1024) throw new Error('待增强视频不能超过 10 MB')
+    const encoded = fs.readFileSync(file).toString('base64')
+    await requireModelGateConnection()
+    let response
+    try {
+      response = await httpJson(`${MG_BASE}/infer`, { headers: mgHeaders(idempotencyKey),
+        body: { model, file: `data:video/mp4;base64,${encoded}` }, timeoutMs: 60000 })
+    } catch (cause) {
+      const error = new Error('视频增强提交的结果未知，请勿重复提交')
+      error.code = 'MG_SUBMIT_UNCERTAIN'; error.cause = cause; throw error
+    }
+    const { status, data } = response
+    if (status !== 202 && status !== 200) {
+      const error = mgErr('ModelGate 视频增强提交失败', status, data)
+      if (status >= 500 || status === 408 || status === 409) error.code = 'MG_SUBMIT_UNCERTAIN'
+      throw error
+    }
+    taskId = mgResult(data)?.task_id
+    if (!taskId) {
+      const error = new Error('视频增强已响应但没有返回任务编号，请人工核对')
+      error.code = 'MG_SUBMIT_UNCERTAIN'; throw error
+    }
+    if (onSubmitted) {
+      try { await onSubmitted(taskId) } catch (cause) {
+        const error = new Error('视频增强已提交，但任务编号保存失败，请核对上游任务')
+        error.code = 'MG_TASK_UNCERTAIN'; error.taskId = taskId; error.cause = cause; throw error
+      }
+    }
+  }
+  const done = await mgTaskWait(taskId, { maxPoll: 300, intervalMs: 5000, onProgress })
+  try {
+    return { provider: 'modelgate', model, task_id: taskId, videoUrl: await mgDownload(done.resultUrl, 'mp4') }
+  } catch (cause) {
+    const error = new Error('视频增强已完成，但结果下载失败；可重新检查结果')
+    error.code = 'MG_TASK_UNCERTAIN'; error.taskId = taskId; error.cause = cause; throw error
+  }
+}
+
 // ---------- 统一入口：仅走 ModelGate，失败直接抛错 ----------
 function mgRequired() {
   if (!mgEnabled()) throw new Error('ModelGate 未启用或未配置 API Key')
 }
 
 export async function embedTexts(texts) {
+  const provider = embeddingProvider()
+  if (provider === 'direct') return directEmbedTexts(texts)
+  if (provider !== 'modelgate') throw new Error('向量服务类型无效')
   mgRequired()
   return mgEmbed(texts)
 }
 
 export async function embedQuery(text) {
-  mgRequired()
-  return mgEmbedQuery(text)
+  const [vector] = await embedTexts([text])
+  return vector
+}
+
+export async function embedImage(url) {
+  if (!supportsImageEmbeddings()) throw new Error('当前向量服务尚未开放图片输入')
+  return directEmbedImage(url)
 }
 
 export async function rerankDocs(query, documents, topN) {

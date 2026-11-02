@@ -5,7 +5,7 @@ async function test() {
   const loginRes = await fetch(`${BASE}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ account: '18008643374', password: process.env.TEST_PWD }),
+    body: JSON.stringify({ account: 'demo-admin', password: process.env.TEST_PWD }),
   })
   const loginData = await loginRes.json()
   const token = loginData.data?.token

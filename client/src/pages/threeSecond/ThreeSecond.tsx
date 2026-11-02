@@ -1,122 +1,69 @@
-import { useState, useEffect } from 'react'
-import { Card, Row, Col, Button, Form, Input, Select, Tabs, List, Tag, Empty, message } from 'antd'
-import { ThunderboltOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Button, Empty, Input, message, Select, Spin } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/request'
+import { withBase } from '../../utils/base'
 
-const HOOK_TYPES = [
-  { key: 'pain', name: '痛点提问', example: '为什么你涂口红总是显黑？' },
-  { key: 'counter', name: '反常识结论', example: '贵价口红的秘密，成分表不会告诉你' },
-  { key: 'number', name: '数字冲击', example: '3秒显白，这支口红做到了' },
-  { key: 'suspense', name: '悬念故事', example: '直到我发现这支口红，再也不怕脱妆了' },
-  { key: 'identity', name: '身份代入', example: '黄皮女生的本命色号，闭眼入' },
-  { key: 'benefit', name: '利益前置', example: '今天下单立减50，还送唇刷' },
-]
+type Material = { id: number; name: string; url: string }
+type Task = { id: number; task_no: string; status: string; stage?: string; error?: string; result?: any; provider_task_id?: string }
 
 export default function ThreeSecond() {
-  const [categories, setCategories] = useState<any[]>([])
-  const [demos, setDemos] = useState<any[]>([])
-  const [form] = Form.useForm()
+  const [images, setImages] = useState<Material[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [prompt, setPrompt] = useState('')
+  const [hookType, setHookType] = useState('visual')
+  const [resolution, setResolution] = useState('540P')
+  const [firstFrame, setFirstFrame] = useState<string>()
+  const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const submitRef = useRef(false)
 
-  useEffect(() => {
-    api.threeSecondCategories().then((d: any) => setCategories(d.list || [])).catch(() => {})
-    api.threeSecondDemos().then((d: any) => setDemos(d.list || [])).catch(() => {})
+  const load = useCallback(() => {
+    api.materials({ type: 'image', pageSize: 100 }).then((data: any) => setImages(data.list || [])).catch(() => {})
+    api.tasks({ module: 'threeSecond', pageSize: 24 }).then((data: any) => setTasks(data.list || [])).catch(() => {})
   }, [])
+  useEffect(() => { load(); const timer = setInterval(load, 6000); return () => clearInterval(timer) }, [load])
 
-  const handleSubmit = async () => {
-    const values = await form.validateFields()
-    setSubmitting(true)
+  const upload = async (file?: File) => {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) return message.warning('请上传 10 MB 以内的 JPG、PNG 或 WebP 图片')
+    setUploading(true)
     try {
-      await api.threeSecondMake(values)
-      message.success('创建成功！AI 正在为你生成三秒完播视频，可在任务列表查看进度')
-      form.resetFields()
-    } catch {
-      /* ignore */
-    }
-    setSubmitting(false)
+      const form = new FormData(); form.append('file', file)
+      const saved: any = await api.uploadMaterial(form)
+      setFirstFrame(saved.url); load(); message.success('参考图片已上传')
+    } catch {} finally { setUploading(false) }
+  }
+
+  const submit = async () => {
+    if (!prompt.trim() || submitRef.current) return
+    submitRef.current = true; setSubmitting(true)
+    try {
+      await api.threeSecondMake({ name: `三秒开场-${prompt.trim().slice(0, 18)}`, prompt: prompt.trim(), hookType, firstFrame: firstFrame || null, resolution })
+      message.success('三秒开场任务已加入队列'); load()
+    } catch {} finally { submitRef.current = false; setSubmitting(false) }
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-800">三秒完播</h2>
-        <p className="mt-1 text-sm text-gray-500">黄金三秒钩子创作，提升视频完播率，让流量翻倍</p>
+    <div className="mx-auto max-w-5xl pb-12">
+      <h1 className="text-2xl font-bold text-gray-900">三秒开场</h1>
+      <p className="mt-2 text-sm text-gray-500">制作一段约 3 秒的短视频开头，实际播放效果以成片和发布数据为准。</p>
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <div className="space-y-5 rounded-2xl bg-white p-6 shadow-sm">
+          <div><label className="mb-2 block text-sm font-medium">1. 描述开场内容</label><Input.TextArea rows={4} maxLength={400} showCount value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：简洁影棚中展示一只白色杯子，镜头缓慢推进" /></div>
+          <div><label className="mb-2 block text-sm font-medium">2. 参考图片（可选，作为首帧）</label><div className="flex gap-2"><Select className="flex-1" placeholder="从素材库选择图片" allowClear value={firstFrame} onChange={setFirstFrame} showSearch optionFilterProp="label" options={images.map((image) => ({ value: image.url, label: image.name }))} /><label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 text-sm hover:border-purple-400"><input type="file" hidden accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { upload(event.target.files?.[0]); event.target.value = '' }} />{uploading ? '上传中…' : '上传图片'}</label></div>{firstFrame && <img src={withBase(firstFrame)} alt="选中的参考首帧" className="mt-3 max-h-40 rounded-lg object-contain" />}</div>
+          <div className="grid grid-cols-2 gap-3"><div><label className="mb-2 block text-sm font-medium">开场方式</label><Select className="w-full" value={hookType} onChange={setHookType} options={[{ value: 'visual', label: '视觉吸引' }, { value: 'pain', label: '疑问引入' }, { value: 'counter', label: '反差画面' }, { value: 'suspense', label: '悬念开场' }, { value: 'identity', label: '人物代入' }, { value: 'benefit', label: '展示已知卖点' }]} /></div><div><label className="mb-2 block text-sm font-medium">清晰度</label><Select className="w-full" value={resolution} onChange={setResolution} options={[{ value: '540P', label: '540P（544 × 960）' }, { value: '720P', label: '720P（736 × 1280）' }]} /></div></div>
+          <div className="rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-500">模型先生成约 5 秒画面，再截取前 3 秒。商品细节、文字和音效可能有误，请检查成片；播放量和完播率不作保证。</div>
+          <div className="flex justify-between text-sm text-gray-500"><span>预计预留</span><span>30 点 / 条</span></div>
+          <Button type="primary" size="large" block disabled={!prompt.trim() || uploading} loading={submitting} onClick={submit}>生成三秒开场</Button>
+        </div>
+        <div className="rounded-2xl bg-white p-6 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">我的开场视频</h2><button onClick={load} className="text-xs text-purple-600"><ReloadOutlined /> 刷新</button></div>
+          {tasks.length === 0 ? <Empty description="暂无真实开场任务" /> : <div className="space-y-4">{tasks.map((task) => <div key={task.id} className="rounded-xl border border-gray-100 p-3"><div className="mb-2 flex justify-between text-xs text-gray-500"><span>{task.task_no}</span><span>{task.stage || task.status}</span></div>
+            {task.status === 'success' && task.result?.videos?.[0]?.url ? <><video controls className="w-full rounded-lg bg-black" src={withBase(task.result.videos[0].url)} />{!!task.result.warnings?.length && <p className="mt-2 text-xs text-amber-600">{task.result.warnings.join('；')}</p>}</> : ['pending', 'running'].includes(task.status) ? <div className="py-5 text-center"><Spin /></div> : <p className="text-xs text-red-500">{task.error || '任务未完成'}</p>}
+            {(task.status === 'pending' || ((task.status === 'running' || task.status === 'reconciling') && task.provider_task_id)) && <Button className="mt-2" size="small" onClick={async () => { try { await api.cancelTask({ id: task.id }); load() } catch {} }}>取消</Button>}
+            {(task.status === 'failed' || (task.status === 'reconciling' && task.provider_task_id)) && <Button className="ml-2 mt-2" size="small" onClick={async () => { try { await api.retryTask({ id: task.id }); load() } catch {} }}>{task.status === 'failed' ? '重新尝试' : '检查结果'}</Button>}
+          </div>)}</div>}</div>
       </div>
-
-      <Row gutter={16}>
-        <Col span={14}>
-          <Card title="创作配置" className="!border-0 shadow-sm">
-            <Form form={form} layout="vertical" onFinish={handleSubmit} initialValues={{ category: 'ecommerce' }}>
-              <Form.Item name="name" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
-                <Input placeholder="例如：口红三秒钩子视频" />
-              </Form.Item>
-              <Form.Item name="category" label="内容分类">
-                <Select options={categories.map((c) => ({ value: c.key, label: c.name }))} />
-              </Form.Item>
-              <Form.Item name="hookType" label="钩子类型" rules={[{ required: true, message: '请选择钩子类型' }]}>
-                <Select
-                  placeholder="选择黄金三秒钩子类型"
-                  options={HOOK_TYPES.map((h) => ({ value: h.key, label: h.name }))}
-                />
-              </Form.Item>
-              <Form.Item name="productName" label="产品名称">
-                <Input placeholder="例如：丝绒雾面口红" />
-              </Form.Item>
-              <Form.Item>
-                <Button type="primary" size="large" block htmlType="submit" icon={<ThunderboltOutlined />} loading={submitting}>
-                  生成视频（消耗 30 点数）
-                </Button>
-              </Form.Item>
-            </Form>
-          </Card>
-
-          <Card title="钩子类型参考" className="mt-4 !border-0 shadow-sm">
-            <List
-              grid={{ gutter: 12, column: 2 }}
-              dataSource={HOOK_TYPES}
-              renderItem={(h) => (
-                <List.Item>
-                  <Card size="small" className="!border !border-gray-100">
-                    <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                      <ClockCircleOutlined className="text-primary" />
-                      {h.name}
-                    </div>
-                    <p className="mt-1.5 text-xs text-gray-500">示例：{h.example}</p>
-                  </Card>
-                </List.Item>
-              )}
-            />
-          </Card>
-        </Col>
-        <Col span={10}>
-          <Card title="爆款案例" className="!border-0 shadow-sm">
-            {demos.length ? (
-              <List
-                dataSource={demos}
-                renderItem={(d) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      avatar={<div className="flex h-14 w-20 items-center justify-center rounded bg-gradient-to-br from-purple-100 to-indigo-100 text-xl">🎬</div>}
-                      title={<span className="text-sm">{d.title}</span>}
-                      description={<Tag className="!text-[10px]">{d.category}</Tag>}
-                    />
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <Empty description="暂无案例" />
-            )}
-          </Card>
-          <Card title="完播率提升技巧" className="mt-4 !border-0 shadow-sm">
-            <ul className="space-y-2 text-xs leading-relaxed text-gray-500">
-              <li>• 前三秒必须抛出核心痛点或利益点</li>
-              <li>• 语速加快，信息密度提升 30%</li>
-              <li>• 搭配醒目花字强化关键信息</li>
-              <li>• 结尾设置悬念引导看完整视频</li>
-            </ul>
-          </Card>
-        </Col>
-      </Row>
     </div>
   )
 }

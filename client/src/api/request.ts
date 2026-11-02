@@ -102,12 +102,13 @@ export const api = {
   uploadMaterial: (formData: FormData) =>
     post('/material/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   voiceProfiles: () => get('/voice/profiles'),
-  voiceStatus: () => get<{ available: boolean | null; reason: string }>('/voice/status', { timeout: 5000 }),
+  voiceStatus: () => get<{ available: boolean | null; reason: string; managementAvailable: boolean | null; managementReason: string; synthesisProvider: string; maxTextLength: number; subtitleTranscribePoints: number; lipSyncAvailable: boolean | null; lipSyncReason: string; lipSyncProvider: string }>('/voice/status', { timeout: 5000 }),
   uploadVoice: (data: FormData) => post('/voice/profiles', data, { timeout: 150000 }),
   deleteVoice: (id: number) => del(`/voice/profiles/${id}`),
   dubVoice: (data: any) => post('/voice/dub', data),
   estimateSubtitles: (data: { videoUrl: string; text: string }) => post('/voice/subtitles/estimate', data),
-  createSubtitles: (data: { videoUrl: string; segments: { text: string; start: number; end: number }[]; style: string }) => post('/voice/subtitles/create', data),
+  transcribeSubtitles: (videoUrl: string) => post('/voice/subtitles/transcribe', { videoUrl }),
+  createSubtitles: (data: { videoUrl: string; segments: { text: string; start: number; end: number }[]; style: string; coverMode?: string }) => post('/voice/subtitles/create', data),
   updateMaterial: (data: any) => post('/material/update', data),
   deleteMaterials: (data: any) => post('/material/delete', data),
   materialCategories: () => get('/material/categories'),
@@ -170,6 +171,7 @@ export const api = {
   createAnalysis: (data: any) => post('/create/analysis', data),
   createVideoAnalysis: (data: any) => post('/video-analysis/create', data),
   createHuman: (data: any) => post('/create/human', data),
+  createHumanDraft: (data: { topic: string; details: string; seconds: number }) => post<{ content: string }>('/create/human/script-draft', data),
   tasks: (params?: any) => get('/task/list', { params }),
   taskDetail: (id: number) => get('/task/detail', { params: { id } }),
   retryTask: (data: any) => post('/task/retry', data),
@@ -264,6 +266,7 @@ export const api = {
 
   // ============ 高清视频 ============
   superResInit: () => get('/super/resolution/init/info/new'),
+  superResEstimate: (sourceUrl: string) => post('/super/resolution/estimate', { sourceUrl }),
   superResCreate: (data: any) => post('/super/resolution/create/new', data),
   superResTasks: () => get('/super/resolution/task/list'),
   superResDelete: (data: any) => post('/super/resolution/task/delete', data),

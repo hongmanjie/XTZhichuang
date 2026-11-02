@@ -10,3 +10,6 @@ client/dist
 *.log
 analysis
 .wbapp_*
+
+# Local development search data
+/.dev-data/

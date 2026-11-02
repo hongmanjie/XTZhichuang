@@ -52,6 +52,16 @@ export const SUBTITLE_STYLES = {
     shadowW: 1,
     fontRatio: 0.048,
   },
+  darkOnLight: {
+    name: '浅底深字',
+    desc: '深色字 · 浅色描边',
+    primary: '&H00000000',
+    outline: '&H00FFFFFF',
+    back: '&H90000000',
+    outlineW: 2.4,
+    shadowW: 0,
+    fontRatio: 0.048,
+  },
   violet: {
     name: '品牌紫',
     desc: '白字紫边 · 兴图智创风格',
@@ -63,6 +73,8 @@ export const SUBTITLE_STYLES = {
     fontRatio: 0.05,
   },
 }
+
+export const SUBTITLE_COVER_MODES = Object.freeze({ none: 0, bottom15: 0.15, bottom20: 0.20, bottom25: 0.25, bottom15White: 0.15, bottom20White: 0.20, bottom25White: 0.25 })
 export const DEFAULT_SUBTITLE_STYLE = 'vivid'
 
 const FONT_NAME = process.env.SUBTITLE_FONT_NAME || (process.platform === 'win32' ? 'Microsoft YaHei' : 'Noto Sans CJK SC')
@@ -247,7 +259,8 @@ async function probeAudioDuration(file) {
 //   voice     voiceId（1-4，传则触发 TTS 配音）
 //   audioUrl  已合成的配音文件（优先于 voice，避免重复合成）
 // 时长策略：成片时长 = max(视频, 配音)；视频短于配音时末帧冻结补齐（tpad），配音短于视频时静音填充（apad）
-export async function burnSubtitles(videoUrl, { text, segments: requestedSegments = null, style = DEFAULT_SUBTITLE_STYLE, voice = null, audioUrl = null, burn = true, subtitleDuration = null } = {}) {
+export async function burnSubtitles(videoUrl, { text, segments: requestedSegments = null, style = DEFAULT_SUBTITLE_STYLE, voice = null, audioUrl = null, burn = true, subtitleDuration = null, coverMode = 'none' } = {}) {
+  if (!Object.hasOwn(SUBTITLE_COVER_MODES, coverMode)) throw new Error('字幕遮挡选项无效')
   const src = await resolveVideo(videoUrl)
   let audioTmp = null // 内部合成的配音临时文件路径
   let assPath = null // ASS 字幕临时文件路径
@@ -289,7 +302,8 @@ export async function burnSubtitles(videoUrl, { text, segments: requestedSegment
         seg.end = Math.min(seg.end, effectiveDur)
       }
       assPath = path.join(os.tmpdir(), `subs_${Date.now()}_${Math.round(Math.random() * 1e6)}.ass`)
-      fs.writeFileSync(assPath, buildAss(segments, style, { width, height }), 'utf8')
+      const effectiveStyle = coverMode.endsWith('White') && style === 'pure' ? 'darkOnLight' : style
+      fs.writeFileSync(assPath, buildAss(segments, effectiveStyle, { width, height }), 'utf8')
     }
 
     const stamp = `${Date.now()}_${Math.round(Math.random() * 1e4)}`
@@ -305,6 +319,11 @@ export async function burnSubtitles(videoUrl, { text, segments: requestedSegment
     if (audioPath) args.push('-i', audioPath)
 
     let vchain = []
+    const coverHeight = SUBTITLE_COVER_MODES[coverMode]
+    if (coverHeight) {
+      const color = coverMode.endsWith('White') ? 'white' : 'black'
+      vchain.push(`drawbox=x=0:y=ih*(1-${coverHeight}):w=iw:h=ih*${coverHeight}:color=${color}:t=fill`)
+    }
     if (assFilter) vchain.push(assFilter)
     // 视频短于配音：末帧冻结补齐
     if (audioPath && audioDur > videoDur + 0.05) {
@@ -363,6 +382,7 @@ export async function burnSubtitles(videoUrl, { text, segments: requestedSegment
       resolution: `${width}x${height}`,
       subtitleBurned: segments.length > 0,
       subtitleStyle: segments.length ? style : null,
+      coverMode,
       segmentCount: segments.length,
       dubbed: !!audioPath,
       audioEngine: audioInfo?.engine || (audioUrl ? 'external' : null),

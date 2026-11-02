@@ -10,6 +10,10 @@ if (process.env.NODE_ENV === 'production' || process.env.ALLOW_DESTRUCTIVE_DEMO_
   process.exit(1)
 }
 
+if (!process.env.DEMO_ADMIN_PASSWORD || !process.env.DEMO_MEMBER_PASSWORD) {
+  throw new Error('初始化演示数据前请设置 DEMO_ADMIN_PASSWORD 和 DEMO_MEMBER_PASSWORD')
+}
+
 const CDN = 'https://mcnvideo.yimetai.com/yyai'
 const DEMO_VIDEOS = [
   `${CDN}/1784719717214.mp4`, `${CDN}/1784719807773.mp4`, `${CDN}/1784773791617.mp4`,
@@ -61,23 +65,23 @@ async function seed() {
 
   // ============ 3. 用户 ============
   // 主账号（复刻目标账号）
-  const mainPassword = await bcrypt.hash('Fang89089407', 10)
+  const mainPassword = await bcrypt.hash(process.env.DEMO_ADMIN_PASSWORD, 10)
   const mainUser = db.prepare(`
     INSERT INTO users (account, password, name, phone, role_id, department_id, ai_points, invite_code, vip_level, vip_expire_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'trial', datetime('now', 'localtime', '+7 day'))
-  `).run('18008643374', mainPassword, '小兴', '18008643374', roleIds[0], deptIds[0], 50000, 'YY8888')
+  `).run('demo-admin', mainPassword, '小兴', 'demo-admin', roleIds[0], deptIds[0], 50000, 'YY8888')
   const mainUserId = mainUser.lastInsertRowid
 
   // 团队成员
   const members = [
-    { name: '李晓', account: '13510566919', dept: 1, role: roleIds[1], points: 12000 },
-    { name: '王芳', account: '13798994324', dept: 1, role: roleIds[2], points: 8600 },
-    { name: '张伟', account: '15080234112', dept: 2, role: roleIds[2], points: 7300 },
-    { name: '陈静', account: '18625000644', dept: 2, role: roleIds[2], points: 5400 },
-    { name: '刘洋', account: '18814190717', dept: 2, role: roleIds[3], points: 3200 },
-    { name: '赵敏', account: '17666551126', dept: 3, role: roleIds[2], points: 4100 },
+    { name: '示例成员1', account: 'demo-member-1', dept: 1, role: roleIds[1], points: 12000 },
+    { name: '示例成员2', account: 'demo-member-2', dept: 1, role: roleIds[2], points: 8600 },
+    { name: '示例成员3', account: 'demo-member-3', dept: 2, role: roleIds[2], points: 7300 },
+    { name: '示例成员4', account: 'demo-member-4', dept: 2, role: roleIds[2], points: 5400 },
+    { name: '示例成员5', account: 'demo-member-5', dept: 2, role: roleIds[3], points: 3200 },
+    { name: '示例成员6', account: 'demo-member-6', dept: 3, role: roleIds[2], points: 4100 },
   ]
-  const memberPassword = await bcrypt.hash('123456', 10)
+  const memberPassword = await bcrypt.hash(process.env.DEMO_MEMBER_PASSWORD, 10)
   const memberIds = members.map((m) => {
     const info = db.prepare(`
       INSERT INTO users (account, password, name, phone, role_id, department_id, ai_points, created_by, status)
@@ -464,8 +468,8 @@ async function seed() {
 ╔══════════════════════════════════════════════════╗
 ║              种子数据初始化完成！                  ║
 ╠══════════════════════════════════════════════════╣
-║  登录账号: 18008643374                            ║
-║  登录密码: Fang89089407                           ║
+║  登录账号: demo-admin                            ║
+║  登录密码: 由 DEMO_ADMIN_PASSWORD 环境变量提供                           ║
 ║  AI点数:   50000                                  ║
 ╚══════════════════════════════════════════════════╝
   `)

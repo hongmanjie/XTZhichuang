@@ -23,6 +23,7 @@ export default function AgentTest() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [loadingMessages, setLoadingMessages] = useState(false)
   const [skill, setSkill] = useState<string>('script')
   const [changingSkill, setChangingSkill] = useState(false)
   const [skills, setSkills] = useState<any[]>([])
@@ -30,6 +31,7 @@ export default function AgentTest() {
   const [videoModels, setVideoModels] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const sendingRef = useRef(false)
   const currentIdRef = useRef<number | null>(currentId)
   const skipLoadRef = useRef<number | null>(null)
   const loadSequenceRef = useRef(0)
@@ -47,21 +49,28 @@ export default function AgentTest() {
   useEffect(() => {
     if (conversationId) {
       const id = +conversationId
-      if (id !== currentIdRef.current) { abortRef.current?.abort(); abortRef.current = null; setSending(false) }
+      if (id !== currentIdRef.current) {
+        abortRef.current?.abort(); abortRef.current = null; sendingRef.current = false; setSending(false)
+        setMessages([])
+      }
       currentIdRef.current = id
       setCurrentId(id)
-      if (skipLoadRef.current === id) skipLoadRef.current = null
+      if (skipLoadRef.current === id) { skipLoadRef.current = null; loadSequenceRef.current++; setLoadingMessages(false) }
       else loadMessages(id)
     } else {
       abortRef.current?.abort()
       abortRef.current = null
+      sendingRef.current = false
       setSending(false)
+      setLoadingMessages(false)
       currentIdRef.current = null
       loadSequenceRef.current++
       setMessages([])
       setCurrentId(null)
     }
   }, [conversationId])
+
+  useEffect(() => () => { abortRef.current?.abort() }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -76,16 +85,17 @@ export default function AgentTest() {
 
   const loadMessages = async (id: number) => {
     const sequence = ++loadSequenceRef.current
+    setLoadingMessages(true)
     try {
       const data = await api.conversationMessages(id)
       if (sequence !== loadSequenceRef.current) return
       setMessages(data.messages || [])
-      if (data.conversation?.skill) setSkill(data.conversation.skill)
-    } catch {}
+      setSkill(data.conversation?.skill || 'script')
+    } catch {} finally { if (sequence === loadSequenceRef.current) setLoadingMessages(false) }
   }
 
   const changeSkill = async (nextSkill: string) => {
-    if (sending || changingSkill || nextSkill === skill) return
+    if (sending || changingSkill || loadingMessages || nextSkill === skill) return
     if (!currentId) { setSkill(nextSkill); return }
     const id = currentId
     setChangingSkill(true)
@@ -105,25 +115,30 @@ export default function AgentTest() {
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || sending) return
+    if (!text || sendingRef.current || changingSkill || loadingMessages) return
+    sendingRef.current = true
+    setSending(true)
 
     let convId = currentId
     if (!convId) {
+      const sequence = loadSequenceRef.current
       try {
         const data = await api.createConversation({ title: text.slice(0, 20), skill })
+        if (sequence !== loadSequenceRef.current || currentIdRef.current !== null) {
+          sendingRef.current = false; setSending(false); fetchConversations(); return
+        }
         convId = data.id
         currentIdRef.current = convId
         setCurrentId(convId)
         skipLoadRef.current = convId
         navigate(`/agent/${convId}`, { replace: true })
         fetchConversations()
-      } catch { return }
+      } catch { sendingRef.current = false; setSending(false); return }
     }
 
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
-    setSending(true)
 
     // SSE 流式请求
     const controller = new AbortController()
@@ -180,7 +195,7 @@ export default function AgentTest() {
           } else if (event === 'task.error') {
             const data = JSON.parse(dataStr)
             reportedError = true
-            antdMessage.error(data.message || 'AI 生成失败')
+            if (currentIdRef.current === convId) antdMessage.error(data.message || 'AI 生成失败')
             setMessages((prev) => {
               if (currentIdRef.current !== convId) return prev
               const next = [...prev]
@@ -193,7 +208,7 @@ export default function AgentTest() {
       }
       if (!completed && !reportedError) throw new Error('对话连接中断')
     } catch (e: any) {
-      if (e.name !== 'AbortError') {
+      if (e.name !== 'AbortError' && currentIdRef.current === convId) {
         antdMessage.error('发送失败，请重试')
       }
       setMessages((prev) => {
@@ -204,7 +219,7 @@ export default function AgentTest() {
         return next
       })
     } finally {
-      if (abortRef.current === controller) { setSending(false); abortRef.current = null }
+      if (abortRef.current === controller) { sendingRef.current = false; setSending(false); abortRef.current = null }
     }
   }
 
@@ -270,7 +285,7 @@ export default function AgentTest() {
               <Tag
                 key={s.key}
                 color={skill === s.key ? 'purple' : 'default'}
-                className={sending || changingSkill ? '!cursor-not-allowed opacity-50' : '!cursor-pointer'}
+                className={sending || changingSkill || loadingMessages ? '!cursor-not-allowed opacity-50' : '!cursor-pointer'}
                 onClick={() => { void changeSkill(s.key) }}
               >
                 {s.name}
@@ -281,7 +296,9 @@ export default function AgentTest() {
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto p-5">
-          {messages.length === 0 ? (
+          {loadingMessages ? (
+            <div className="flex h-full items-center justify-center"><Spin tip="正在加载会话"><div className="h-12 w-24" /></Spin></div>
+          ) : messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center">
               <img src={withBase('/images/aiAgent/conversation-placeholder.png')} alt="" className="mb-4 h-24 w-24 opacity-60" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               <h3 className="mb-2 text-lg font-medium text-gray-700">开始你的创作之旅</h3>
@@ -290,7 +307,7 @@ export default function AgentTest() {
                 {[
                   { icon: <FileTextOutlined />, text: '帮我写一个口红的带货口播脚本' },
                   { icon: <PictureOutlined />, text: '生成一个面膜的分镜脚本' },
-                  { icon: <FileTextOutlined />, text: '分析这个爆款视频的创作逻辑' },
+                  { icon: <FileTextOutlined />, text: '根据我提供的文案分析创作逻辑' },
                   { icon: <RobotOutlined />, text: '给我一些双11的创意选题' },
                 ].map((q, i) => (
                   <div
@@ -365,13 +382,13 @@ export default function AgentTest() {
             {sending ? (
               <Button danger onClick={handleStop}>停止</Button>
             ) : (
-              <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={!input.trim()}>
+              <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={!input.trim() || changingSkill || loadingMessages}>
                 发送
               </Button>
             )}
           </div>
           <div className="mt-2 flex justify-between text-[10px] text-gray-300">
-            <span>AI生成内容仅供参考</span>
+            <span>AI可能编造商品属性、认证或价格，请核实后使用</span>
             <ExpandOutlined />
           </div>
         </div>
@@ -384,7 +401,7 @@ export default function AgentTest() {
           {skills.map((s) => (
             <div key={s.key} className="rounded-xl border border-gray-100 p-3">
               <div className="flex items-center gap-2">
-                <img src={s.icon} alt="" className="h-5 w-5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <img src={withBase(s.icon)} alt="" className="h-5 w-5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 <span className="text-xs font-medium text-gray-700">{s.name}</span>
               </div>
               <p className="mt-1 text-[10px] text-gray-400">{s.desc}</p>

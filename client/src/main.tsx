@@ -6,6 +6,13 @@ import zhCN from 'antd/locale/zh_CN'
 import App from './App'
 import './index.css'
 
+// 子路径部署（/xtzc）下，地址缺少前缀会让 BrowserRouter 匹配不到 basename，
+// 整个应用渲染为空。这里在挂载前把地址补全，避免旧链接或手输地址进来看到黑屏。
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '')
+if (basePath && basePath !== '/' && window.location.pathname !== basePath && !window.location.pathname.startsWith(`${basePath}/`)) {
+  window.location.replace(`${basePath}${window.location.pathname}${window.location.search}${window.location.hash}`)
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ConfigProvider

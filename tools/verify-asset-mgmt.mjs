@@ -1,3 +1,4 @@
+if (!process.env.DEMO_ADMIN_PASSWORD || !process.env.DEMO_MEMBER_PASSWORD) throw new Error('请设置演示账号密码环境变量')
 /** 素材管理与权限端到端验证: node tools/verify-asset-mgmt.mjs */
 const BASE = 'http://localhost:3001/api'
 const ok = []
@@ -18,8 +19,8 @@ const api = async (path, { method = 'GET', token, body } = {}) => {
 }
 
 // 1. 登录主账号 + 成员账号
-const boss = await login('18008643374', 'Fang89089407')
-const member = await login('13510566919', '123456')
+const boss = await login('demo-admin', process.env.DEMO_ADMIN_PASSWORD)
+const member = await login('demo-member-1', process.env.DEMO_MEMBER_PASSWORD)
 check('主账号登录', !!boss)
 check('成员账号登录', !!member)
 

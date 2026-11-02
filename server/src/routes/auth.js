@@ -103,7 +103,7 @@ router.get('/user/info', authRequired, (req, res) => {
 
 // 退出登录
 router.post('/logout', authRequired, (req, res) => {
-  res.clearCookie('yimetai_media', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' })
+  res.clearCookie('yimetai_media', { httpOnly: true, sameSite: 'lax', secure: req.secure === true, path: '/' })
   res.json(success(null, '已退出登录'))
 })
 

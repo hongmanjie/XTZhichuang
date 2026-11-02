@@ -6,7 +6,8 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "seed": "node src/seed.js",
-    "test": "node --test tests/video-core.test.js"
+    "rebuild-search": "node src/rebuild-search.js",
+    "test": "node --test tests/video-core.test.js tests/model-adapters.test.js"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.15.2",

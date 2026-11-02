@@ -618,6 +618,58 @@ db.exec(`CREATE TABLE IF NOT EXISTS long_video_segments (
 )`)
 ensureColumn('long_video_segments', 'soundscape', 'soundscape TEXT')
 ensureColumn('long_video_segments', 'music', 'music TEXT')
+ensureColumn('long_video_segments', 'quality_check', 'quality_check TEXT')
+ensureColumn('long_video_segments', 'quality_attempts', 'quality_attempts INTEGER NOT NULL DEFAULT 0')
+db.exec(`CREATE TABLE IF NOT EXISTS super_res_segments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  start_frame INTEGER NOT NULL,
+  frame_count INTEGER NOT NULL,
+  drop_prefix INTEGER NOT NULL,
+  fps TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  provider_task_id TEXT,
+  input_url TEXT,
+  result_url TEXT,
+  UNIQUE(task_id, position)
+)`)
+db.exec(`CREATE TABLE IF NOT EXISTS human_voice_workflows (
+  task_id INTEGER PRIMARY KEY REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  speech_file TEXT,
+  speech_duration REAL,
+  video_duration REAL,
+  speech_check TEXT
+)`)
+ensureColumn('human_voice_workflows', 'speech_check', 'speech_check TEXT')
+ensureColumn('human_voice_workflows', 'speech_timing', 'speech_timing TEXT')
+ensureColumn('human_voice_workflows', 'subtitle_alignment', 'subtitle_alignment TEXT')
+db.exec(`CREATE TABLE IF NOT EXISTS human_speech_segments (
+  task_id INTEGER NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  speech_file TEXT,
+  speech_duration REAL,
+  PRIMARY KEY(task_id, position)
+)`)
+
+db.exec(`CREATE TABLE IF NOT EXISTS human_product_workflows (
+  task_id INTEGER PRIMARY KEY REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  idempotency_key TEXT NOT NULL,
+  provider_task_id TEXT,
+  background_url TEXT,
+  cutout_url TEXT,
+  first_frame_url TEXT
+)`)
+db.exec(`CREATE TABLE IF NOT EXISTS human_lip_segments (
+  task_id INTEGER NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  result_url TEXT NOT NULL,
+  PRIMARY KEY(task_id, position)
+)`)
 db.exec(`CREATE TABLE IF NOT EXISTS voice_profiles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id INTEGER NOT NULL REFERENCES users(id),

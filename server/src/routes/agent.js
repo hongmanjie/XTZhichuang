@@ -54,6 +54,7 @@ router.get('/conversations', authRequired, (req, res) => {
 })
 
 router.post('/conversations', authRequired, (req, res) => {
+  if (req.body.skill && !SKILLS.some((item) => item.key === req.body.skill)) return res.json(fail('请选择有效的创作技能', 400))
   const info = db.prepare('INSERT INTO conversations (title, skill, owner_id) VALUES (?, ?, ?)')
     .run(req.body.title || '新会话', req.body.skill || null, req.user.id)
   res.json(success({ id: info.lastInsertRowid }))
@@ -233,10 +234,10 @@ async function chatStreamToString(messages) {
 
 // 按技能注入系统提示词
 function buildSystemPrompt(skill) {
-  const base = '你是「兴图智创」电商广告内容创作助手，服务于商家与内容创作者。回答使用简体中文，务实、可执行。只能基于用户明确提供的事实，不能虚构产品功效、认证、价格、销量或评价，信息不足时先说明并请求补充。当前对话只能读取用户输入的文字，不会自动读取图片、视频或链接内容；不得声称已经看到或分析了未提供的画面，可建议用户使用视频解析功能。'
+  const base = '你是「兴图智创」电商广告内容创作助手，服务于商家与内容创作者。回答使用简体中文，务实、可执行。只能根据用户明确提供的事实写商品介绍与营销话术。没有明确提供或证据的商品材质、用途、功效、安全性、认证、价格、销量、评价或行业统计，都不能编入卖点、示例宣传语或具体报价；即使标注“待确认”也不能把它们写成事实或推荐用户宣称。不要从颜色、名称等推断食品安全、无菌、无添加、母婴级或其他未提供的属性；缺少必要信息时只提出需要确认的问题。可以提出拍摄画面创意，但要说明是创作建议而非已看到的画面。当前对话只能读取用户输入的文字，不会自动读取图片、视频或链接内容；不得声称已经看到或分析了未提供的画面，可建议用户使用视频解析功能。'
   const skillPrompts = {
     script: `\n当前技能：脚本创作。用户需要带货口播/短视频脚本。输出要求：\n- 若未指定时长，默认产出 30~45 秒口播脚本\n- 按时间轴分段（黄金3秒钩子/痛点引入/产品亮相/卖点展示/信任背书/行动号召），每段标注秒数与话术\n- 话术口语化，每句不超过 20 字，符合抖音带货节奏\n- 结尾主动询问是否需要调整风格、时长或补充卖点`,
-    product: `\n当前技能：产品分析。用户需要产品卖点与营销策略分析。输出要求：\n- 结构化输出：核心卖点（1主推+2辅助）、目标人群画像、差异化定位、定价与促销建议\n- 结合平台特性（抖音兴趣电商）给出可落地建议\n- 数据表述需标注为估算/经验值，避免编造精确数据`,
+    product: `\n当前技能：产品分析。用户需要产品卖点与营销策略分析。输出要求：\n- 先列出用户已提供的事实，只使用这些事实给出卖点和话术；信息不足时不必凑足卖点，应列出待确认问题\n- 目标人群和拍摄思路可作为明确标注的假设，不得当成已验证结论\n- 未提供成本和定价目标时，不给出具体价格、促销力度或所谓行业均价，不编造数据来源`,
     video: `\n当前技能：视频脚本/分镜。用户需要分镜脚本。输出要求：\n- 使用表格输出：时间 | 画面描述 | 话术/字幕 | 景别/运镜\n- 包含 BGM 与节奏建议\n- 分镜密度符合短视频习惯（每 3~6 秒一个镜头）`,
   }
   return base + (skillPrompts[skill] || '\n用户未指定技能时，先简要确认需求，再给出可执行的内容方案。')
@@ -244,11 +245,11 @@ function buildSystemPrompt(skill) {
 
 // ============ 生成记录 ============
 router.get('/agent/generations', authRequired, (req, res) => {
-  res.json(page([], 0))
+  res.json(fail('智能体生成记录尚未接入，请在会话中查看对话记录', 503))
 })
 
 router.get('/artifacts', authRequired, (req, res) => {
-  res.json(success([]))
+  res.json(fail('智能体独立产物记录尚未接入', 503))
 })
 
 export default router

@@ -1,0 +1,22 @@
+name: xtzc-alignment
+services:
+  align:
+    image: ${ALIGN_IMAGE:-funasr_server:latest}
+    entrypoint: ["python3", "/svc/server.py"]
+    restart: unless-stopped
+    cpus: 2
+    mem_limit: 6g
+    memswap_limit: 6g
+    pids_limit: 128
+    environment:
+      ALIGN_SERVICE_TOKEN: ${ALIGN_SERVICE_TOKEN:?Set a private token}
+      ALIGN_MODEL_DIR: /model
+      ALIGN_PORT: "18095"
+      PYTHONUNBUFFERED: "1"
+      HF_HUB_OFFLINE: "1"
+      MODELSCOPE_OFFLINE: "1"
+    ports:
+      - "${ALIGN_BIND_HOST:-127.0.0.1}:18095:18095"
+    volumes:
+      - ./server.py:/svc/server.py:ro
+      - ${ALIGN_MODEL_DIR:?Set the local Paraformer model path}:/model:ro
