@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 import { FFMPEG, localMediaPath, probeMedia, runMedia } from './mediaTools.js'
 import { mgOCR } from './aiProviders.js'
+import { ocrWithTiling } from './ocrWithTiling.js'
 import { inspectVideoOverlays, videoVisionProvider } from './visionProvider.js'
 
 // Sampling and inference are read-only; tolerate one transient failure while
@@ -22,6 +23,7 @@ export async function inspectVideoText(videoUrl, { includeTop = false, onStage =
   if (!input || !fs.existsSync(input)) return { status: 'unavailable', samples: 0, method: 'sampled_ocr' }
   let dir
   let samples = 0
+  let tiledFrames = 0
   let phase = 'probe'
   try {
     const { duration } = await probeMedia(input)
@@ -44,7 +46,8 @@ export async function inspectVideoText(videoUrl, { includeTop = false, onStage =
         phase = `extract_${region}`
         await retryReadOnly(() => runMedia(FFMPEG, ['-y', '-ss', String(time), '-i', input, '-vf', filter, '-frames:v', '1', frame], 60000))
         phase = `ocr_${region}`
-        const result = await retryReadOnly(() => ocr(frame))
+        const result = await ocrWithTiling(frame, ocr)
+        if (result.tiled) tiledFrames++
         samples++
         // OCR may label shapes as a weak single character. For longer lines,
         // favor avoiding a second subtitle over a potentially cleaner picture:
@@ -65,7 +68,7 @@ export async function inspectVideoText(videoUrl, { includeTop = false, onStage =
           // microphones, and small product marks. Let visual semantics decide.
           if (aspect !== null && aspect < 1.3) continue
           const strong = confidence >= 0.9 || (length >= 3 && (aspect === null || aspect >= 2.5))
-          if (strong && !(preferVisionSemantics && useVision)) return { status: 'text_detected', samples, method: 'sampled_ocr' }
+          if (strong && !(preferVisionSemantics && useVision)) return { status: 'text_detected', samples, tiledFrames, method: 'sampled_ocr' }
           ambiguousText = true
         }
       }
@@ -80,11 +83,11 @@ export async function inspectVideoText(videoUrl, { includeTop = false, onStage =
       onStage('正在复核画面字幕')
       phase = 'vision'
       const visual = await retryReadOnly(() => inspectVideoOverlays(visionFrames))
-      if (visual?.status === 'present') return { status: 'text_detected', samples, visionSamples: visionFrames.length, method: 'sampled_ocr_and_vision' }
-      if (visual?.status !== 'absent') return { status: 'unavailable', samples, visionSamples: visionFrames.length, method: 'sampled_ocr_and_vision', failedAt: 'vision_uncertain' }
-      return { status: 'clear', samples, visionSamples: visionFrames.length, method: 'sampled_ocr_and_vision' }
+      if (visual?.status === 'present') return { status: 'text_detected', samples, tiledFrames, visionSamples: visionFrames.length, method: 'sampled_ocr_and_vision' }
+      if (visual?.status !== 'absent') return { status: 'unavailable', samples, tiledFrames, visionSamples: visionFrames.length, method: 'sampled_ocr_and_vision', failedAt: 'vision_uncertain' }
+      return { status: 'clear', samples, tiledFrames, visionSamples: visionFrames.length, method: 'sampled_ocr_and_vision' }
     }
-    return { status: ambiguousText ? 'text_detected' : 'clear', samples, method: 'sampled_ocr' }
+    return { status: ambiguousText ? 'text_detected' : 'clear', samples, tiledFrames, method: 'sampled_ocr' }
   } catch (error) {
     // Avoid logging frames, OCR text or credentials; report only the failed
     // operation and a coarse error category to make repeated failures diagnosable.
@@ -92,7 +95,7 @@ export async function inspectVideoText(videoUrl, { includeTop = false, onStage =
     const http = message.match(/HTTP\s+(\d{3})/i)?.[1]
     const errorType = http ? `http_${http}` : /resource temporarily unavailable/i.test(message) ? 'resource_unavailable' : /out of memory|cannot allocate memory/i.test(message) ? 'out_of_memory' : error?.name === 'AbortError' ? 'timeout' : 'processing_error'
     console.warn(`[\u5b57\u5e55\u68c0\u67e5] ${phase}: ${errorType}`)
-    return { status: 'unavailable', samples, method: 'sampled_ocr', failedAt: phase, errorType }
+    return { status: 'unavailable', samples, tiledFrames, method: 'sampled_ocr', failedAt: phase, errorType }
   } finally {
     if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }) } catch {} }
   }

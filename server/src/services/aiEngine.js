@@ -88,7 +88,10 @@ export function buildHumanScenePrompt({ text, sceneKey, sceneDesc, persona, huma
   if (humanName) parts.push(`主播形象风格：${String(humanName).slice(0, 40)}`)
   if (scene) parts.push(`身处${scene}`)
   if (productDesc) parts.push(`桌面上摆放着${String(productDesc).slice(0, 60)}，人物与商品同框且商品清晰可见`)
+  if (text) parts.push('近景半身构图，面部占画面高度三分之一以上，五官清晰')
   if (text) parts.push('人物正面面对镜头自然说话，神情亲切，嘴部动作清晰')
+  // 官方镜头语法：Static Shot 保持机位与焦段不动，人脸不漂移，口型更好对齐
+  parts.push('Static Shot，机位与焦段保持不动')
   parts.push('真实摄影质感，商业布光，主体清晰')
   parts.push(NO_TEXT_CONSTRAINT)
   return parts.join('。')

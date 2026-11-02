@@ -8,7 +8,6 @@ import { applyLipSync } from './lipSync.js'
 import { generateLongVideo } from './longVideo.js'
 import { burnSubtitles } from './subtitleBurn.js'
 import { bandTextDetected, repairSubtitleBand, subtitleRepairStatus } from './subtitleRepair.js'
-import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
 import { timedSubtitleSegments, wordTimedSubtitleSegments } from './subtitleAlign.js'
 import { humanWordAlignment } from './humanAlignment.js'
 import { concatenateVideos, FFMPEG, MEDIA_UPLOAD_DIR, localMediaPath, probeAudio, probeMedia, runMedia } from './mediaTools.js'
@@ -231,7 +230,7 @@ export async function generateHumanVideo(params, context, prompt) {
   const refs = productReference.url ? [{ role: 'first', type: 'image', url: productReference.url }] : []
   // 画面里出现文字不再整段重生成：交给后面的字幕带修复处理，
   // 一次重生成要多等 45–75 秒，而修复只要几秒。
-  await generateLongVideo(context.taskId, { prompt, refs, ratio: '9:16', resolution: params.resolution || '540P' }, { segmentsOnly: true })
+  await generateLongVideo(context.taskId, { prompt, refs, ratio: '9:16', resolution: params.resolution || '540P', silentAudio: true }, { segmentsOnly: true })
   const plannedRows = db.prepare('SELECT * FROM long_video_segments WHERE task_id = ? ORDER BY position').all(context.taskId)
   const rows = []
   for (const row of plannedRows) {
@@ -249,34 +248,40 @@ export async function generateHumanVideo(params, context, prompt) {
 
   // Keep VSR targeted to observed text and never add a second subtitle when
   // detection or repair is inconclusive. OCR and vision are sampled checks.
+  // 只做一次带内粗检（每段 3 张图）决定要不要修；查不出来时按“可能有字”处理，
+  // 照样修、照样加字幕，不让检测结果否决成片。
   const repair = { applied: false, reason: 'no_text', provider: 'vsr', segments: 0 }
-  let textCheck = { status: 'clear', method: 'sampled_ocr_and_vision', samples: 0, retries: 0 }
   const repairUrls = []
+  const textCheck = { status: 'clear', method: 'band_probe', samples: 0 }
   for (const row of rows) {
-    let check = await inspectVideoText(row.result_url, { includeTop: true, onStage: context.onStage, preferVisionSemantics: Boolean(params.productImage || params.productDesc) })
-    textCheck.samples += check.samples || 0
-    if (check.status === 'text_detected') {
-      const band = await bandTextDetected(row.result_url)
-      if (subtitleRepairStatus().available && band?.detected && band.top != null && band.bottom != null) {
-        try {
-          const cleaned = await repairSubtitleBand(row.result_url, { onStage: context.onStage, bandTop: band.top, bandBottom: band.bottom })
-          if (cleaned.applied) {
-            row.result_url = cleaned.url
-            repairUrls.push(cleaned.url)
-            repair.applied = true
-            repair.segments++
-            repair.reason = 'repaired'
-            check = await inspectVideoText(row.result_url, { includeTop: true, onStage: context.onStage, preferVisionSemantics: Boolean(params.productImage || params.productDesc) })
-            textCheck.samples += check.samples || 0
-          }
-        } catch (error) {
-          repair.reason = 'failed'
-          repair.error = String(error.message || error).slice(0, 200)
-        }
-      } else repair.reason = band === null ? 'detection_unavailable' : 'outside_repair_region'
+    let band = null
+    try { band = await bandTextDetected(row.result_url) } catch { band = null }
+    textCheck.samples += band?.samples || 0
+    const detected = band?.detected === true
+    const unknown = band === null
+    if (!detected && !unknown) continue
+    if (!subtitleRepairStatus().available) { repair.reason = 'not_configured'; continue }
+    try {
+      // 按“像字幕的框”逐个给区域，商品 logo 这类短方块不会被带进去
+      const cleaned = await repairSubtitleBand(row.result_url, {
+        onStage: context.onStage,
+        areas: band?.areas || null,
+      })
+      if (cleaned.applied) {
+        row.result_url = cleaned.url
+        repairUrls.push(cleaned.url)
+        repair.applied = true
+        repair.segments += 1
+        repair.reason = unknown ? 'repaired_uncertain' : 'repaired'
+      }
+    } catch (error) {
+      repair.reason = 'failed'
+      repair.error = String(error.message || error).slice(0, 200)
     }
-    if (check.status !== 'clear') { textCheck.status = check.status; if (check.failedAt) textCheck.failedAt = check.failedAt; if (check.errorType) textCheck.errorType = check.errorType }
   }
+  if (repair.reason === 'failed') warnings.push('画面文字清理未完成，已保留原画面')
+  if (!textCheck.samples) textCheck.status = 'unavailable'
+
   const videoUrls = []
   let offset = 0
   let joined = null
@@ -286,14 +291,7 @@ export async function generateHumanVideo(params, context, prompt) {
       const url = params.lipSync ? await syncHumanClip(row, audio.path, offset, context) : row.result_url
       videoUrls.push(url)
       offset += row.duration
-      if (params.lipSync && textCheck.status === 'clear') {
-        const check = await inspectVideoText(url, { includeTop: true, onStage: context.onStage, preferVisionSemantics: Boolean(params.productImage || params.productDesc) })
-        textCheck.samples += check.samples || 0
-        if (check.status !== 'clear') { textCheck.status = check.status; if (check.failedAt) textCheck.failedAt = check.failedAt; if (check.errorType) textCheck.errorType = check.errorType }
-      }
     }
-    const checkWarning = textCheckWarning(textCheck, params.subtitle?.enabled !== false)
-    if (checkWarning) warnings.push(checkWarning)
     context.onStage('正在合成数字人视频')
     const merged = videoUrls.length === 1 ? { url: videoUrls[0], ...(await probeMedia(localMediaPath(videoUrls[0]))) } : await concatenateVideos(videoUrls)
     if (videoUrls.length > 1) joined = localMediaPath(merged.url)
@@ -310,7 +308,7 @@ export async function generateHumanVideo(params, context, prompt) {
     let url = `/uploads/${name}`
     let cover = ''
     let subtitle = { enabled: false }
-    if (params.subtitle?.enabled !== false && textCheck.status === 'clear') {
+    if (params.subtitle?.enabled !== false) {
       context.onStage('正在添加字幕')
       // 用录音识别出的停顿排字幕；识别不可用时退回按字数估算
       const precise = wordTimedSubtitleSegments(params.text, wordTimings, audio.duration)
@@ -330,8 +328,6 @@ export async function generateHumanVideo(params, context, prompt) {
         subtitle = { enabled: false, reason: 'burn_failed' }
         warnings.push('字幕没有加上：' + String(error.message || error).slice(0, 120))
       }
-    } else if (params.subtitle?.enabled !== false) {
-      subtitle = { enabled: false, reason: textCheck.status }
     }
     return { title: '数字人视频', engine: 'real', provider: 'modelgate', model: 'MiniMax-H3',
       generatedAt: new Date().toISOString(), humanPipeline: 'audio-first', qualityCheck: textCheck, speechCheck, subtitle, subtitleRepair: repair,

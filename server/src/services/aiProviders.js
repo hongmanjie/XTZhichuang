@@ -486,13 +486,35 @@ export async function mgImageGen({ prompt, negative_prompt, size = [1024, 1024],
 }
 
 // ---------- 8b. MiniMax-H3 音视频生成（202 异步任务，约5~25分钟） ----------
-// MiniMax-H3 要求三段式 JSON prompt（集成描述/环境声/配乐）
-export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '' } = {}) {
-  return JSON.stringify({
-    integrated_multimodal_description: prompt,
-    overall_soundscape: soundscape || '与画面内容匹配的真实环境音，自然克制，突出主体动作声',
-    non_diegetic_music: music || '轻快现代的电商风格背景音乐，节奏与画面剪辑点匹配，音量不抢主体',
-  })
+// MiniMax-H3 官方请求格式是三段式纯文本前缀，不是 JSON。
+// 依据 scripts/minimax_h3/server/post_t2av.py：
+//   integrated_multimodal_description: ...
+//   overall_soundscape: ...
+//   non_diegetic_music: ...
+// 之前用 JSON.stringify 包成 {"...":"..."}，模型看到的是带引号的大括号，
+// 字段划分不清晰，音景和配乐容易跑偏。
+//
+// 画幅必须写进描述：只给 size 不给构图说明时，模型会按横屏构图往竖屏里塞，
+// 结果是人物和商品并排、两侧被裁（768x1344 实测复现）。
+export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '', size } = {}) {
+  let frame = ''
+  if (Array.isArray(size) && size.length === 2 && Number.isFinite(size[0]) && Number.isFinite(size[1])) {
+    const [height, width] = size
+    frame = height > width
+      ? '竖屏 9:16 构图，主体位于画面中部，头顶和脚下留出空间，避免左右裁切'
+      : height < width
+        ? '横屏 16:9 构图，主体居中，左右留出空间'
+        : '方形 1:1 构图，主体居中'
+  }
+  // 官方规范：首个镜头以 [Shot 1] 开头，风格与初始构图紧跟在后面。
+  // 调用方已经写了 [Shot N] 时不重复加。
+  const head = /\[shot\s*1\]/i.test(prompt) ? '' : '[Shot 1] '
+  const description = `${head}${frame ? `${frame}。` : ''}${prompt}`
+  return [
+    `integrated_multimodal_description: ${description}`,
+    `overall_soundscape: ${soundscape || '与画面内容匹配的真实环境音，自然克制，突出主体动作声'}`,
+    `non_diegetic_music: ${music || '轻快现代的电商风格背景音乐，节奏与画面剪辑点匹配，音量不抢主体'}`,
+  ].join('\n')
 }
 
 // H3 每张卡的常驻显存已经接近满载（空载就占 13 GiB，峰值 22 GiB+），
@@ -512,13 +534,31 @@ export function mgVideoGen(params) {
   }))
 }
 
-async function mgVideoGenInner({ prompt, soundscape, music, task = 't2av', size = [896, 512], num_frames = 124, fps = 24, imageSrc, lastFrameSrc, model = MG_VIDEO_MODEL, targetDuration, idempotencyKey, resumeTaskId, onSubmitted, onProgress } = {}) {
+// H3 的 runner 不接受 negative_prompt 字段，只能写进正向提示词。
+// 官方提示词规范只描述“画面里有什么”，不列举“不要什么”——列举这些词
+// 反而会把字幕、水印、logo 这些概念带进模型注意力。这里改成一句明确陈述。
+export const DEFAULT_VIDEO_NEGATIVE = 'No on-screen text, captions, subtitles or watermarks appear in any frame'
+
+async function mgVideoGenInner({ prompt, soundscape, music, task = 't2av', size = [896, 512], num_frames = 124, fps = 24, imageSrc, lastFrameSrc, model = MG_VIDEO_MODEL, targetDuration, idempotencyKey, resumeTaskId, negativePrompt, onSubmitted, onProgress } = {}) {
   const frames = validateH3Frames(num_frames)
   const validatedSize = validateH3Size(size)
+  // 双卡实测：720P 192 帧起 OOM、540P 345 帧起 OOM。提交前拦下，
+  // 否则要等好几分钟才失败，还会在上游留下显存碎片。
+  const isLarge = Math.max(validatedSize[0], validatedSize[1]) >= 1280
+  const frameCap = isLarge ? 175 : 311
+  if (frames > frameCap) {
+    throw new Error(isLarge
+      ? '720P 单段最多 175 帧（约 7.3 秒），请缩短时长或改用 540P'
+      : '540P 单段最多 311 帧（约 13 秒），请缩短时长')
+  }
   if (fps !== 24) throw new Error('当前视频模型仅支持 24 帧/秒')
   const expected = { t2av: [false, false], i2av: [true, false], l2av: [false, true], fl2av: [true, true] }[task]
   if (!expected || expected[0] !== !!imageSrc || expected[1] !== !!lastFrameSrc) throw new Error('首尾帧与视频生成模式不匹配')
-  const body = { model, task, prompt: buildMiniMaxPrompt(prompt, { soundscape, music }), size: validatedSize, num_frames: frames, fps }
+  // H3 的 t2av runner 会拒绝 negative_prompt 字段（"does not support request fields"），
+  // 只能把负面约束写进正向提示词。
+  const guard = String(negativePrompt || DEFAULT_VIDEO_NEGATIVE).trim()
+  const finalPrompt = guard ? `${prompt}。${guard}` : prompt
+  const body = { model, task, prompt: buildMiniMaxPrompt(finalPrompt, { soundscape, music, size: validatedSize }), size: validatedSize, num_frames: frames, fps }
   if (!resumeTaskId && imageSrc) body.image_path = await toB64(imageSrc)
   if (!resumeTaskId && lastFrameSrc) body.last_frame_path = await toB64(lastFrameSrc)
   let taskId = resumeTaskId

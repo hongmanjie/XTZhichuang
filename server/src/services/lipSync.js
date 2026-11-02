@@ -52,6 +52,9 @@ export async function applyLipSync(videoPath, speechPath) {
     const form = new FormData()
     form.append('video', new Blob([fs.readFileSync(videoPath)], { type: 'video/mp4' }), 'video.mp4')
     form.append('audio', new Blob([fs.readFileSync(padded)], { type: 'audio/wav' }), 'speech.wav')
+    // 默认 20 步 / 1.5 引导偏激进，脸小时容易糊和走形；调高步数、降低引导更稳
+    form.append('steps', String(Number(process.env.LIPSYNC_STEPS) || 30))
+    form.append('guidance_scale', String(Number(process.env.LIPSYNC_GUIDANCE) || 1.2))
     const timeout = Math.min(1800000, Math.max(120000, Number(process.env.LIPSYNC_TIMEOUT_MS) || 900000))
     let response
     try { response = await fetch(directUrl('/v1/lipsync'), { method: 'POST', body: form, redirect: 'error', signal: AbortSignal.timeout(timeout) }) }

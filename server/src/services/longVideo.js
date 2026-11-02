@@ -2,40 +2,63 @@ import crypto from 'crypto'
 import fs from 'fs'
 import db from '../db.js'
 import { cleanupFiles } from '../utils/fileStore.js'
-import { chat, imageToJpegB64, mgVideoGen } from './aiProviders.js'
-import { h3FramesForDuration, h3Size } from './h3Spec.js'
+import { chat, imageToJpegB64, mgVideoGen, DEFAULT_VIDEO_NEGATIVE } from './aiProviders.js'
+import { h3FramesForDuration, h3Size, planSegmentFrames } from './h3Spec.js'
 import { concatenateVideos, extractLastFrame, localMediaPath } from './mediaTools.js'
 import { longVideoPlanningMessages } from './creativeGuide.js'
 
-export function segmentDurations(duration) {
-  if (!Number.isInteger(duration) || duration <= 0 || duration > 96) throw new Error('长视频时长超出支持范围')
-  const result = []
-  let remaining = duration
-  while (remaining > 0) {
-    const part = Math.min(8, remaining)
-    result.push(part)
-    remaining -= part
-  }
-  return result
+// 720P 实测 175 帧（7.29 秒）能过、192 帧必 OOM，单段上限按清晰度收敛。
+export function maxSegmentSeconds(resolution = '540P') {
+  return resolution === '720P' ? 7 : 11
+}
+
+export function segmentDurations(duration, resolution = '540P') {
+  const maxDuration = resolution === '720P' ? 84 : 96
+  if (!Number.isInteger(duration) || duration <= 0 || duration > maxDuration) throw new Error(`当前清晰度下最长支持 ${maxDuration} 秒`)
+  const cap = maxSegmentSeconds(resolution)
+  // 均分而不是贪心切满：15 秒按 7 秒贪心会得到 7+7+1，
+  // 而 1 秒那段会被模型补到 5.17 秒，成片直接变 19 秒。
+  const count = Math.max(1, Math.ceil(duration / cap))
+  const base = Math.floor(duration / count)
+  let remainder = duration - base * count
+  return Array.from({ length: count }, () => {
+    const extra = remainder > 0 ? 1 : 0
+    remainder -= extra
+    return base + extra
+  })
 }
 
 async function planSegments(taskId, params) {
   const existing = db.prepare('SELECT * FROM long_video_segments WHERE task_id = ? ORDER BY position').all(taskId)
   if (existing.length) return existing
-  const durations = segmentDurations(Number(params.duration))
-  if (durations.length < 2 || durations.length > 12) throw new Error('长视频时长超出支持范围')
+  const durations = segmentDurations(Number(params.duration), params.resolution || '540P')
+  if (durations.length < 2 || durations.length > 12) throw new Error('分段数量超出支持范围（2–12 段）')
   const refs = Array.isArray(params.refs) ? params.refs : []
-  const response = await chat(longVideoPlanningMessages({ prompt: params.prompt, durations, ratio: params.ratio,
-    hasFirst: refs.some((ref) => ref.role === 'first'), hasLast: refs.some((ref) => ref.role === 'last') }),
-  { temperature: 0.4, max_tokens: Math.min(4000, 700 + durations.length * 350) })
-  let plan
-  try {
+  // 数字人已经有完整的人物与商品描述，再让分镜模型改写会丢掉这些细节，
+  // 而且它的音频会被 TTS 完全覆盖，没必要让 H3 生成音景和配乐。
+  const silentAudio = params.silentAudio === true
+  let plan = null
+  if (!silentAudio) try {
+    const response = await chat(longVideoPlanningMessages({ prompt: params.prompt, durations, ratio: params.ratio,
+      hasFirst: refs.some((ref) => ref.role === 'first'), hasLast: refs.some((ref) => ref.role === 'last') }),
+    { temperature: 0.4, max_tokens: Math.min(4000, 700 + durations.length * 350) })
     const cleaned = response.replace(/```(?:json)?|```/g, '').trim()
     const matched = cleaned.match(/\{[\s\S]*\}/)
-    plan = JSON.parse(matched ? matched[0] : cleaned)
-  } catch { throw new Error('镜头规划返回格式无效，请重试') }
-  if (!Array.isArray(plan.shots) || plan.shots.length !== durations.length) {
-    throw new Error('镜头规划结果不完整，请重试')
+    const parsed = JSON.parse(matched ? matched[0] : cleaned)
+    if (Array.isArray(parsed.shots) && parsed.shots.length === durations.length) plan = parsed
+  } catch { plan = null }
+  // 分镜模型不可用（网关 503 等）时降级成“单镜头连续”，
+  // 长视频不该因为对话服务挂掉就整条失败。
+  if (!plan) {
+    plan = {
+      visual_style: '',
+      music: silentAudio ? 'N/A' : '',
+      shots: durations.map((_, index) => ({
+        visual: `${params.prompt}（第 ${index + 1}/${durations.length} 段，同一场景、同一主体、连续拍摄，不要转场）`,
+        camera: silentAudio ? 'Static Shot，机位与焦段保持不动' : (index === 0 ? '镜头平稳，缓慢推近' : '沿用上一段的机位、光线与景别'),
+        soundscape: silentAudio ? 'N/A' : '与画面内容一致的真实环境音，无背景音乐',
+      })),
+    }
   }
   const shots = plan.shots.map((shot) => {
     if (typeof shot === 'string') return { description: shot.trim(), soundscape: '' }
@@ -61,6 +84,8 @@ export async function generateLongVideo(taskId, params, { segmentsOnly = false, 
   const first = refs.find((ref) => ref.role === 'first')?.url
   const last = refs.find((ref) => ref.role === 'last')?.url
   let previousUrl = null
+  // 每段帧数按 17n+5 对齐后整体分配，避免逐段向上取整累积出多余的秒数
+  const plannedFrames = planSegmentFrames(segments.map((row) => row.duration), params.resolution || '540P')
   for (let index = 0; index < segments.length; index++) {
     let segment = db.prepare('SELECT * FROM long_video_segments WHERE id = ?').get(segments[index].id)
     if (segment.status === 'completed') {
@@ -90,15 +115,40 @@ export async function generateLongVideo(taskId, params, { segmentsOnly = false, 
       db.prepare("UPDATE ai_tasks SET provider_task_id = ?, stage = ? WHERE id = ?").run(segment.provider_task_id || null, `正在生成第 ${index + 1}/${segments.length} 段`, taskId)
     }).immediate()
     try {
-      const out = await mgVideoGen({
-        prompt, task: mode, size: h3Size(params.ratio, params.resolution), num_frames: h3FramesForDuration(segment.duration),
-        targetDuration: segment.duration, imageSrc, lastFrameSrc, soundscape: segment.soundscape || undefined, music: segment.music || undefined,
-        idempotencyKey: segment.idempotency_key, resumeTaskId: segment.provider_task_id,
-        onSubmitted: (providerId) => db.transaction(() => {
-          db.prepare('UPDATE long_video_segments SET provider_task_id = ? WHERE id = ?').run(providerId, segment.id)
-          db.prepare('UPDATE ai_tasks SET provider_task_id = ? WHERE id = ?').run(providerId, taskId)
-        }).immediate(),
-      })
+      // 单段失败只影响这一段：明确失败（上游报错、断连、OOM）自动重试，
+      // 已完成的片段不动，重试用新的幂等键重新提交，避免脏状态复用。
+      let out = null
+      let attempt = 0
+      const maxAttempts = Math.max(1, Number(process.env.H3_SEGMENT_ATTEMPTS) || 5)
+      while (true) {
+        try {
+          out = await mgVideoGen({
+            prompt, task: mode, size: h3Size(params.ratio, params.resolution), num_frames: plannedFrames[index],
+            targetDuration: segment.duration, imageSrc, lastFrameSrc, soundscape: segment.soundscape || undefined, music: segment.music || undefined,
+            negativePrompt: params.negativePrompt || DEFAULT_VIDEO_NEGATIVE,
+            idempotencyKey: segment.idempotency_key, resumeTaskId: segment.provider_task_id,
+            onSubmitted: (providerId) => db.transaction(() => {
+              db.prepare('UPDATE long_video_segments SET provider_task_id = ? WHERE id = ?').run(providerId, segment.id)
+              db.prepare('UPDATE ai_tasks SET provider_task_id = ? WHERE id = ?').run(providerId, taskId)
+            }).immediate(),
+          })
+          break
+        } catch (error) {
+          attempt += 1
+          const retryable = ['MG_TASK_FAILED', 'MG_CONNECTION_UNAVAILABLE'].includes(error.code)
+            || /upstream_failed|CUDA out of memory|out of memory/i.test(String(error.message || ''))
+          if (!retryable || attempt >= maxAttempts) throw error
+          db.transaction(() => {
+            db.prepare("UPDATE long_video_segments SET status = 'pending', provider_task_id = NULL, idempotency_key = ? WHERE id = ?")
+              .run(crypto.randomUUID(), segment.id)
+            db.prepare('UPDATE ai_tasks SET provider_task_id = NULL, stage = ? WHERE id = ?')
+              .run(`第 ${index + 1} 段失败，第 ${attempt + 1} 次重试`, taskId)
+          }).immediate()
+          segment = db.prepare('SELECT * FROM long_video_segments WHERE id = ?').get(segment.id)
+          // 5/10/20/40 秒退避：OOM 之后显存要时间释放，立刻重试大概率同样失败
+          await new Promise((resolve) => setTimeout(resolve, Math.min(40000, 5000 * 2 ** (attempt - 1))))
+        }
+      }
       const candidateUrl = out.videos[0].url
       const quality = validateSegment ? await validateSegment(candidateUrl, segment.position) : null
       if (quality?.status === 'text_detected' && Number(segment.quality_attempts || 0) < maxQualityRetries) {

@@ -116,13 +116,30 @@ class Handler(BaseHTTPRequestHandler):
             width, height = probe_size(source)
             if not width or not height:
                 return self._json(500, {"ok": False, "error": "无法读取视频尺寸"})
-            ymin = max(0, min(height - 2, int(height * band_top)))
-            ymax = max(ymin + 2, min(height, int(height * band_bottom)))
-
-            fd, target = tempfile.mkstemp(suffix=".mp4", prefix="vsr_out_")
-            os.close(fd)
-            cmd = [sys.executable, MAIN_PY, "-i", source, "-o", target,
-                   "-c", str(ymin), str(ymax), "0", str(width), "--inpaint-mode", mode]
+            regions = []
+            areas_raw = (query.get("areas") or [""])[0].strip()
+            if areas_raw:
+                for part in areas_raw.split(";"):
+                    try:
+                        vals = [float(v) for v in part.split(",")]
+                    except ValueError:
+                        continue
+                    if len(vals) != 4:
+                        continue
+                    t, b, l, r = vals
+                    y1 = max(0, min(height - 2, int(height * t)))
+                    y2 = max(y1 + 2, min(height, int(height * b)))
+                    x1 = max(0, min(width - 2, int(width * l)))
+                    x2 = max(x1 + 2, min(width, int(width * r)))
+                    regions.append((y1, y2, x1, x2))
+            if not regions:
+                ymin = max(0, min(height - 2, int(height * band_top)))
+                ymax = max(ymin + 2, min(height, int(height * band_bottom)))
+                regions.append((ymin, ymax, 0, width))
+            cmd = [sys.executable, MAIN_PY, "-i", source, "-o", target]
+            for (y1, y2, x1, x2) in regions:
+                cmd += ["-c", str(y1), str(y2), str(x1), str(x2)]
+            cmd += ["--inpaint-mode", mode]
             started = time.time()
             try:
                 proc = subprocess.run(cmd, cwd=WORKDIR, capture_output=True, text=True, timeout=JOB_TIMEOUT)
@@ -130,12 +147,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(504, {"ok": False, "error": "修复超时"})
             cost = round(time.time() - started, 2)
             if proc.returncode != 0 or not os.path.isfile(target) or os.path.getsize(target) < 1024:
-                tail = (proc.stderr or proc.stdout or "").strip()[-400:]
-                return self._json(500, {"ok": False, "error": "修复失败: " + tail, "seconds": cost})
+                merged = (proc.stderr or "") + "\n" + (proc.stdout or "")
+                # 进度条会刷满 stderr，只取最后一段 traceback
+                marker = merged.rfind("Traceback (most recent call last)")
+                detail = (merged[marker:] if marker >= 0 else merged).strip()
+                if len(detail) > 900:
+                    detail = detail[:200] + " ... " + detail[-700:]
+                print("[vsr] FAILED rc=%s %s" % (proc.returncode, detail.replace("\n", " | ")[:600]), flush=True)
+                return self._json(500, {"ok": False, "error": "修复失败: " + detail, "seconds": cost})
 
             with open(target, "rb") as handle:
                 payload = handle.read()
-            print(f"[vsr] ok {width}x{height} region={ymin}-{ymax} {cost}s {len(payload)}B", flush=True)
+            print(f"[vsr] ok {width}x{height} regions={regions} {cost}s {len(payload)}B", flush=True)
             self._video(payload, cost)
         except Exception as error:  # noqa: BLE001
             self._json(500, {"ok": False, "error": str(error)[:300]})
