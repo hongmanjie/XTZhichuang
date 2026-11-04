@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url'
 import { Readable, Transform } from 'stream'
 import { pipeline } from 'stream/promises'
 import dotenv from 'dotenv'
-import { FFMPEG, localMediaPath, probeImage, probeMedia, trimVideo } from './mediaTools.js'
+import { FFMPEG, MEDIA_UPLOAD_DIR, localMediaPath, probeImage, probeMedia, trimVideo } from './mediaTools.js'
 import { validateH3Frames, validateH3Size } from './h3Spec.js'
 import { embeddingProvider, directEmbedTexts, directEmbedImage, supportsImageEmbeddings } from './embeddingProvider.js'
 import { withSharedH3Lock } from './h3SharedLock.js'
@@ -482,6 +482,85 @@ export async function mgImageGen({ prompt, negative_prompt, size = [1024, 1024],
   } catch (cause) {
     const error = new Error('上游已完成，但图片下载失败；可重新检查结果')
     error.code = 'MG_TASK_UNCERTAIN'; error.taskId = taskId; error.cause = cause; throw error
+  }
+}
+
+// 整图重绘（i2i）：把 ffmpeg 贴图合成的瑕疵融合掉。
+// 背景：抠图 overlay 出来的商品和场景不共享光照、没有接触阴影，看起来像贴纸。
+// 交给图像模型整图重画一遍，商品保留，光影和接触关系由模型重建。
+//
+// 网关的 i2i 会随机路由到不同上游，打到不支持图像任务的那个会返回
+// submission_rejected_http_413，重试即可命中正确实例（实测约一半概率）。
+
+// 网关的 Qwen-Image 主上游可能指向已被替换成 H3 的机器（会稳定返回 413），
+// 直连实例则一直可用。这里保留网关优先、直连兜底的链路，避免整条出片链路被上游配置卡住。
+async function directImageFuse({ base64, prompt, size }) {
+  const base = (process.env.MG_IMAGE_DIRECT_BASE_URL || '').trim().replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(base)) throw new Error('未配置图像直连地址')
+  const name = `direct_${crypto.randomUUID()}.png`
+  const start = await fetch(`${base}/v1/tasks/image/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(60000),
+    body: JSON.stringify({ task: 'i2i', prompt, image_path: base64, size, seed: -1, save_result_path: `./${name}` }),
+  })
+  if (!start.ok) throw new Error(`图像直连提交失败 HTTP ${start.status}`)
+  const task = await start.json()
+  const id = task.task_id
+  if (!id) throw new Error('图像直连未返回任务号')
+  for (let i = 0; i < 100; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const s = await fetch(`${base}/v1/tasks/${id}/status`, { signal: AbortSignal.timeout(20000) })
+    const d = await s.json()
+    if (d.status === 'completed') {
+      const r = await fetch(`${base}/v1/tasks/${id}/result`, { signal: AbortSignal.timeout(120000) })
+      if (!r.ok) throw new Error(`图像直连取回失败 HTTP ${r.status}`)
+      const file = path.join(MEDIA_UPLOAD_DIR, `ai_${crypto.randomUUID()}.png`)
+      fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()))
+      return { provider: 'direct', model: 'Qwen-Image-2.1-Turbo', task_id: id, images: ['/uploads/' + path.basename(file)] }
+    }
+    if (d.status === 'failed') throw new Error(`图像直连生成失败: ${String(d.error).slice(0, 160)}`)
+  }
+  throw new Error('图像直连生成超时')
+}
+
+export async function mgImageFuse({ imageUrl, prompt, size, attempts = 5, onProgress } = {}) {
+  const base64 = await imageToJpegB64(imageUrl, { q: 4 })
+  let lastError = null
+  for (let i = 0; i < attempts; i += 1) {
+    let taskId = null
+    try {
+      const body = { model: MG_IMAGE_MODEL, task: 'i2i', prompt, image_path: base64, size }
+      const { status, data } = await httpJson(`${MG_BASE}/infer`, { headers: mgHeaders(), body, timeoutMs: 180000 })
+      taskId = mgResult(data)?.task_id
+      if (!taskId) throw new Error('i2i 提交未返回任务编号')
+      if (status !== 202 && status !== 200) throw new Error(`i2i 提交失败 HTTP ${status}`)
+    } catch (cause) {
+      lastError = cause
+      continue
+    }
+    try {
+      const done = await mgTaskWait(taskId, { maxPoll: 200, intervalMs: 5000, onProgress })
+      const local = await mgDownload(done.resultUrl, 'png')
+      return { provider: 'modelgate', model: MG_IMAGE_MODEL, task_id: taskId, images: [local], attempts: i + 1 }
+    } catch (cause) {
+      lastError = cause
+      // 只有“打到错误实例”这种 413 值得重试，其他错误直接放弃
+      if (!/413|submission_rejected/i.test(String(cause?.message || cause))) break
+    }
+  }
+  // 网关全失败时走直连实例，只要本机能访问图像服务就能出图
+  try {
+    const out = await directImageFuse({ base64, prompt, size })
+    console.warn('[image] 网关融合失败，已改用直连实例')
+    return out
+  } catch (directError) {
+    const error = new Error(
+      '图像融合失败: ' + String(lastError?.message || lastError).slice(0, 120)
+      + ' / 直连: ' + String(directError.message || directError).slice(0, 120),
+    )
+    error.code = 'MG_FUSE_FAILED'
+    throw error
   }
 }
 

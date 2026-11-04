@@ -125,7 +125,9 @@ async function ensureVideoPlan(params, context, duration, prompt) {
   }
   const allowed = Number(params.reservedSegments) || humanReservedSegments(params.text, params.resolution)
   const durations = humanPlanFromSpeech(duration, allowed, params.resolution)
-  let actions = durations.map(() => '自然介绍桌面商品，用克制的手势示意，保持商品位置与外观稳定')
+  // 商品一旦被拿起，下一段回锚又会回到桌面，形成“桌面→手持→桌面”的反复跳变。
+  // 统一约束为商品留在桌面原位，段内表现与锚定图保持一致。
+  let actions = durations.map(() => '商品始终保持在桌面原位不动，只用目光和手掌示意方向，不要拿起、不要移动、不要遮挡商品')
   if (params.productImage || params.productDesc) {
     context.onStage('正在规划展示动作')
     try {
@@ -139,7 +141,7 @@ async function ensureVideoPlan(params, context, duration, prompt) {
         return { segment: index + 1, text: text || params.text.slice(0, 200) }
       })
       const reply = await chat([
-        { role: 'system', content: '你是口播视频动作规划助手。根据每段文案，为主播设计一个简短、缓慢、自然的商品展示手势。只输出 JSON 对象，格式为 {"actions":["动作", ...]}，数量必须与段数相同。不要输出文案原句，不要添加商品事实、价格、功效、字幕、文字或水印，不要夸张运镜。' },
+        { role: 'system', content: '你是口播视频动作规划助手。根据每段文案，为主播设计一个简短、缓慢、自然的手势。只输出 JSON 对象，格式为 {"actions":["动作", ...]}，数量必须与段数相同。硬约束：商品始终保持在桌面原位，不得拿起、移动、翻转或遮挡商品；动作只能是目光示意、手掌摊开指向、轻微前倾或点头这类上半身动作。不要输出文案原句，不要添加商品事实、价格、功效、字幕、文字或水印，不要夸张运镜。' },
         { role: 'user', content: JSON.stringify(scenes) },
       ], { temperature: 0.2, max_tokens: 400 })
       const parsed = JSON.parse((String(reply).match(/\{[\s\S]*\}/) || [])[0] || '{}')
@@ -230,7 +232,10 @@ export async function generateHumanVideo(params, context, prompt) {
   const refs = productReference.url ? [{ role: 'first', type: 'image', url: productReference.url }] : []
   // 画面里出现文字不再整段重生成：交给后面的字幕带修复处理，
   // 一次重生成要多等 45–75 秒，而修复只要几秒。
-  await generateLongVideo(context.taskId, { prompt, refs, ratio: '9:16', resolution: params.resolution || '540P', silentAudio: true }, { segmentsOnly: true })
+  // 全段锚定实测会让每段重复“从桌面拿起商品”，段边界必跳（任务 52/53/9003/9004）。
+  // 只有在“纯人物、无商品”这种动作幅度极小的场景才开锚定；
+  // 有商品时走链式，让第 2 段起延续上一段末帧的手持状态，避免拿起又放下。
+  await generateLongVideo(context.taskId, { prompt, refs, ratio: '9:16', resolution: params.resolution || '540P', silentAudio: true, anchorFirstFrame: Boolean(productReference.url) && !params.productImage }, { segmentsOnly: true })
   const plannedRows = db.prepare('SELECT * FROM long_video_segments WHERE task_id = ? ORDER BY position').all(context.taskId)
   const rows = []
   for (const row of plannedRows) {

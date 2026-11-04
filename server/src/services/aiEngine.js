@@ -20,6 +20,8 @@ import { isSeedVRDirectId } from './seedvrDirect.js'
 import { cleanupSuperResolutionSegments } from './superResolutionSegments.js'
 import { generateHumanVideo, cleanupHumanVoiceWorkflow } from './humanVideo.js'
 import { describeProductImage } from './visionProvider.js'
+import { buildProductScene } from './productScene.js'
+import { enhanceVisualPrompt, inferPromptKind } from './promptEnhance.js'
 import { prepareHumanProductFrame } from './humanProduct.js'
 import { transcribeSubtitles } from './subtitleTranscription.js'
 import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
@@ -87,12 +89,22 @@ export function buildHumanScenePrompt({ text, sceneKey, sceneDesc, persona, huma
   const parts = [personaPart]
   if (humanName) parts.push(`主播形象风格：${String(humanName).slice(0, 40)}`)
   if (scene) parts.push(`身处${scene}`)
-  if (productDesc) parts.push(`桌面上摆放着${String(productDesc).slice(0, 60)}，人物与商品同框且商品清晰可见`)
-  if (text) parts.push('近景半身构图，面部占画面高度三分之一以上，五官清晰')
+  // 商品描述里的规格数字（如“三百五十毫升”）会被模型画成画面文字，
+  // 实测成片出现过“350ml”伪字幕。这里只保留外观，并把数字换成占位。
+  if (productDesc) {
+    const look = String(productDesc).slice(0, 60)
+      .replace(/[0-9０-９一二三四五六七八九十百千万零两]+\s*(毫升|ml|ML|克|g|G|cm|CM|mm|寸|英寸)/g, '')
+      .replace(/[，、]\s*[，、]/g, '，')
+    parts.push(`桌面上摆放着${look}，人物与商品同框且商品清晰可见，商品表面干净无文字和数字`)
+  }
+  // 近景 + 商业布光是人像最容易露馅的组合：脸太大、光太平。
+  // 退到中景并保留真实皮肤纹理，观感更接近实拍。
+  if (text) parts.push('中景半身构图，面部占画面高度四分之一到三分之一')
   if (text) parts.push('人物正面面对镜头自然说话，神情亲切，嘴部动作清晰')
   // 官方镜头语法：Static Shot 保持机位与焦段不动，人脸不漂移，口型更好对齐
   parts.push('Static Shot，机位与焦段保持不动')
-  parts.push('真实摄影质感，商业布光，主体清晰')
+  parts.push('自然光方向明确，皮肤保留真实纹理与毛孔，不要磨皮')
+  parts.push('画面带轻微环境反光与真实阴影，主体清晰')
   parts.push(NO_TEXT_CONSTRAINT)
   return parts.join('。')
 }
@@ -514,11 +526,44 @@ async function runRealTask(module, params, tpl, context) {
     case 'studio':
       return generateStudio(params, context)
     case 'materialField': {
-      if (Number(params.duration) > 8) return generateLongVideo(context.taskId, params)
+      // 素材是多条可剪的镜头，不是一条连续片子；>8 秒用多镜头剪辑，各镜头独立成立
       const refs = Array.isArray(params.refs) ? params.refs : []
       const first = refs.find((r) => r.role === 'first') || (refs.length === 1 && !refs[0].role ? refs[0] : null)
       const last = refs.find((r) => r.role === 'last')
-      return genVideoByFrames({ firstFrame: first?.url, lastFrame: last?.url, prompt: params.prompt,
+      // 用户通常只写一句“白色马克杯在木桌上旋转”，缺少镜头语言，
+      // 模型只能靠猜。这里先改写成带机位、焦段、光线、景深的英文描述。
+      context.onStage?.('正在优化画面描述')
+      const enhanced = await enhanceVisualPrompt(params.prompt, {
+        kind: inferPromptKind(params.prompt),
+        ratio: params.ratio,
+        seconds: Number(params.duration) || 4,
+      })
+      const kind = inferPromptKind(params.prompt)
+      // 白底商品图直接当首帧时，模型会把产品特写扩成完整场景，凭空编出人物和桌面；
+      // 先让图像模型把这件商品重新画进真实场景，再拿去做首帧。
+      let firstUrl = first?.url
+      if (firstUrl && kind === 'product' && process.env.PRODUCT_SCENE !== 'off') {
+        try {
+          const built = await buildProductScene({
+            imageUrl: firstUrl,
+            prompt: params.prompt,
+            ratio: params.ratio,
+            resolution: params.resolution,
+            taskId: context.taskId,
+            onStage: context.onStage,
+            mode: 'product',
+          })
+          if (built?.url) firstUrl = built.url
+        } catch (error) {
+          console.warn('[materialField] 商品场景图失败，改用原图:', String(error.message || error).slice(0, 160))
+        }
+      }
+      if (Number(params.duration) > 8) {
+        const mergedRefs = (Array.isArray(params.refs) ? params.refs : [])
+          .map((ref) => (ref === first ? { ...ref, url: firstUrl } : ref))
+        return generateLongVideo(context.taskId, { ...params, refs: mergedRefs, mode: 'multishot' })
+      }
+      return genVideoByFrames({ firstFrame: firstUrl, lastFrame: last?.url, prompt: enhanced,
         duration: Number(params.duration), size: h3Size(params.ratio, params.resolution), context })
     }
     case 'human': {

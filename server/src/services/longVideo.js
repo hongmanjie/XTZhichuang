@@ -40,7 +40,8 @@ async function planSegments(taskId, params) {
   let plan = null
   if (!silentAudio) try {
     const response = await chat(longVideoPlanningMessages({ prompt: params.prompt, durations, ratio: params.ratio,
-      hasFirst: refs.some((ref) => ref.role === 'first'), hasLast: refs.some((ref) => ref.role === 'last') }),
+      hasFirst: refs.some((ref) => ref.role === 'first'), hasLast: refs.some((ref) => ref.role === 'last'),
+      mode: params.mode || 'continuous' }),
     { temperature: 0.4, max_tokens: Math.min(4000, 700 + durations.length * 350) })
     const cleaned = response.replace(/```(?:json)?|```/g, '').trim()
     const matched = cleaned.match(/\{[\s\S]*\}/)
@@ -99,8 +100,16 @@ export async function generateLongVideo(taskId, params, { segmentsOnly = false, 
       const error = new Error(`第 ${index + 1} 段提交状态未知，请联系管理员核对`)
       error.code = 'MG_SUBMIT_UNCERTAIN'; throw error
     }
-    let firstFrame = index === 0 ? first : segment.first_frame_url
-    if (index > 0 && !firstFrame) {
+    // 锚定模式：每段都从同一张锚定图开始，人物和商品绝不逐段漂移。
+    // 段间动作由每段 prompt 各自决定，不会重复上一段的内容。
+    // 多镜头模式同样要挂同一张首帧：否则每段都会重新“编”一个商品，
+    // 实测杯子上的文字会变成 TIASHRDY / GRNRFY / DINSHOY 三种不同的伪文字。
+    // 镜头之间本来就是切换，视觉上不会像口播那样觉得回跳。
+    let firstFrame = index === 0 || params.anchorFirstFrame || params.mode === 'multishot' ? first : segment.first_frame_url
+    // 便于核对锚定是否真的生效：anchored 表示本段用的是同一张锚定图
+    console.log(`[h3-anchor] task=${taskId} seg=${index + 1}/${segments.length} anchor=${!!params.anchorFirstFrame} source=${index === 0 ? 'first' : (params.anchorFirstFrame ? 'anchor' : 'prev-frame')}`)
+    // 多镜头模式下每段独立生成，不继承上一段末帧，避免把上一个镜头的构图带进来
+    if (index > 0 && !firstFrame && params.mode !== 'multishot') {
       firstFrame = await extractLastFrame(previousUrl)
       db.prepare('UPDATE long_video_segments SET first_frame_url = ? WHERE id = ?').run(firstFrame, segment.id)
     }

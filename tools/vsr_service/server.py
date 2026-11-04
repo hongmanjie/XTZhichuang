@@ -136,6 +136,11 @@ class Handler(BaseHTTPRequestHandler):
                 ymin = max(0, min(height - 2, int(height * band_top)))
                 ymax = max(ymin + 2, min(height, int(height * band_bottom)))
                 regions.append((ymin, ymax, 0, width))
+            # target 之前初始化为 None 后再没赋值，VSR 收到 None 直接抛
+            # "expected str, bytes or os.PathLike object, not NoneType"。
+            out_fd, target = tempfile.mkstemp(suffix=".mp4", prefix="vsr_out_")
+            os.close(out_fd)
+            os.unlink(target)  # 让 VSR 自己创建，避免空文件导致它跳过写盘
             cmd = [sys.executable, MAIN_PY, "-i", source, "-o", target]
             for (y1, y2, x1, x2) in regions:
                 cmd += ["-c", str(y1), str(y2), str(x1), str(x2)]
