@@ -138,7 +138,9 @@ export function parseSkillOutput(raw) {
   if (!matched) return null
   try {
     const parsed = JSON.parse(matched[0])
-    const desc = typeof parsed.integrated_multimodal_description === 'string' ? parsed.integrated_multimodal_description.trim() : ''
+    let desc = typeof parsed.integrated_multimodal_description === 'string' ? parsed.integrated_multimodal_description.trim() : ''
+    // 官方规范：首镜不加时间戳。模型偶尔会写 At 00:00.000, 这里归一化掉。
+    desc = desc.replace(/^(\[Shot 1\]\s*)At 00:00(?:\.000)?,\s*/i, '$1')
     const soundscape = typeof parsed.overall_soundscape === 'string' ? parsed.overall_soundscape.trim() : ''
     const music = typeof parsed.non_diegetic_music === 'string' ? parsed.non_diegetic_music.trim() : ''
     if (!desc || !soundscape || !music) return null
