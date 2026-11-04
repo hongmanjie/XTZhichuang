@@ -22,6 +22,7 @@ import { generateHumanVideo, cleanupHumanVoiceWorkflow } from './humanVideo.js'
 import { describeProductImage } from './visionProvider.js'
 import { buildProductScene } from './productScene.js'
 import { enhanceVisualPrompt, inferPromptKind } from './promptEnhance.js'
+import { directMaterialPrompt, directHumanPerformance } from './promptDirector.js'
 import { prepareHumanProductFrame } from './humanProduct.js'
 import { transcribeSubtitles } from './subtitleTranscription.js'
 import { inspectVideoText, textCheckWarning } from './videoTextCheck.js'
@@ -533,10 +534,12 @@ async function runRealTask(module, params, tpl, context) {
       // 用户通常只写一句“白色马克杯在木桌上旋转”，缺少镜头语言，
       // 模型只能靠猜。这里先改写成带机位、焦段、光线、景深的英文描述。
       context.onStage?.('正在优化画面描述')
-      const enhanced = await enhanceVisualPrompt(params.prompt, {
-        kind: inferPromptKind(params.prompt),
+      const directed = await directMaterialPrompt({
+        prompt: params.prompt,
+        hasFirst: !!first?.url,
+        hasLast: !!last?.url,
+        durationSec: Number(params.duration) || 4,
         ratio: params.ratio,
-        seconds: Number(params.duration) || 4,
       })
       const kind = inferPromptKind(params.prompt)
       // 白底商品图直接当首帧时，模型会把产品特写扩成完整场景，凭空编出人物和桌面；
@@ -563,8 +566,9 @@ async function runRealTask(module, params, tpl, context) {
           .map((ref) => (ref === first ? { ...ref, url: firstUrl } : ref))
         return generateLongVideo(context.taskId, { ...params, refs: mergedRefs, mode: 'multishot' })
       }
-      return genVideoByFrames({ firstFrame: firstUrl, lastFrame: last?.url, prompt: enhanced,
-        duration: Number(params.duration), size: h3Size(params.ratio, params.resolution), context })
+      return genVideoByFrames({ firstFrame: firstUrl, lastFrame: last?.url, prompt: directed.prompt,
+        duration: Number(params.duration), size: h3Size(params.ratio, params.resolution), context,
+        ...(directed.source === 'skill' ? { audioOpts: { soundscape: directed.soundscape, music: directed.music } } : {}) })
     }
     case 'human': {
       // 场景约束口播：有首帧 → 首帧图生视频（i2av，形象/场景一致性最强）；
@@ -574,7 +578,7 @@ async function runRealTask(module, params, tpl, context) {
       if (!productDesc && params.productImage) {
         try { productDesc = await describeProductImage(params.productImage) || '' } catch { productDesc = '' }
       }
-      const prompt = buildHumanScenePrompt({
+      const basePrompt = buildHumanScenePrompt({
         text: params.text,
         sceneKey: params.sceneKey,
         sceneDesc: params.sceneDesc,
@@ -582,6 +586,8 @@ async function runRealTask(module, params, tpl, context) {
         humanName: params.humanName,
         productDesc,
       })
+      const performance = await directHumanPerformance({ text: params.text })
+      const prompt = performance ? `${basePrompt}。表演要求：${performance}` : basePrompt
       if (params.workflow === 'audio-first') return generateHumanVideo(params, context, prompt)
       const size = h3Size('9:16', params.resolution || '720P')
       // 时长随文案自动推算（之前固定 124 帧≈5s，长文案念不完导致配音截断/成片无声）
@@ -663,7 +669,7 @@ async function genVideoByFrames({ prompt, firstFrame, lastFrame, size = h3Size('
   const lastFrameSrc = lastFrame ? (context.resumeTaskId ? lastFrame : await imageToJpegB64(lastFrame)) : undefined
   const task = firstFrame ? (lastFrame ? 'fl2av' : 'i2av') : (lastFrame ? 'l2av' : 't2av')
   const out = await mgVideoGen({ prompt, task, size, num_frames: frames || h3FramesForDuration(duration || 4), imageSrc, lastFrameSrc,
-    targetDuration: duration, ...audioOpts, ...context })
+    targetDuration: duration, autoRetryFl2av: true, ...audioOpts, ...context })
   return normalizeVideoResult(out, prompt)
 }
 

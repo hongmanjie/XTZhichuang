@@ -8,6 +8,7 @@ import { teamCond } from '../utils/teamScope.js'
 import { localMediaPath, probeMedia } from '../services/mediaTools.js'
 import { inspectStudioProduct } from '../services/studio.js'
 import { cutoutProduct } from '../services/cutout.js'
+import { MF_MODELS, mfCost } from '../services/materialPricing.js'
 import { indexTtsStatus } from '../services/indexTts.js'
 import { presetByVoiceId } from '../services/voicePresets.js'
 import { lipSyncStatus } from '../services/lipSync.js'
@@ -127,15 +128,7 @@ router.post('/create/studio', authRequired, asyncHandler(async (req, res) => {
 }))
 
 // ============ AI素材场（深度复刻原站） ============
-// 点数计价：XingTu-2.5: 720P=16点/4s、1080P=32点/4s；XingTu-2.0: 720P=20点/4s、1080P=40点/4s；8s 翻倍
-const MF_MODELS = [
-  { key: 'MiniMax-H3', name: 'MiniMax-H3', badge: '', price: { '540P': 12, '720P': 16 } },
-]
-function mfCost(model, resolution, duration) {
-  const m = MF_MODELS.find((x) => x.key === model) || MF_MODELS[0]
-  const base = m.price[resolution] || m.price['720P']
-  return base * (duration > 8 ? Math.ceil(duration / 8) * 2 : duration / 4)
-}
+// 点数计价见 services/materialPricing.js
 
 router.post('/create/materialField', authRequired, asyncHandler(async (req, res) => {
   const {

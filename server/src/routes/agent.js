@@ -3,6 +3,8 @@ import db from '../db.js'
 import { authRequired } from '../middleware/auth.js'
 import { success, fail, page, asyncHandler } from '../utils/response.js'
 import { realEnabled, chatStream, MODEL_CATALOG } from '../services/aiProviders.js'
+import { createTask } from '../services/aiEngine.js'
+import { mfCost } from '../services/materialPricing.js'
 
 const router = express.Router()
 
@@ -251,5 +253,68 @@ router.get('/agent/generations', authRequired, (req, res) => {
 router.get('/artifacts', authRequired, (req, res) => {
   res.json(fail('智能体独立产物记录尚未接入', 503))
 })
+
+// ============ 分镜结构化 + 一键送素材场（P0） ============
+function timecode(seconds) {
+  const whole = Math.floor(seconds)
+  const ms = Math.round((seconds - whole) * 1000)
+  return `00:${String(whole).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+}
+
+function composeShotPrompt(style, shots) {
+  const body = shots.map((shot, index) => {
+    const timing = index === 0 ? '' : `At ${timecode(shots.slice(0, index).reduce((sum, s) => sum + Number(s.seconds || 0), 0))}, `
+    return `[Shot ${index + 1}] ${timing}${[shot.visual, shot.action, shot.camera].filter(Boolean).join('，')}。`
+  }).join(' ')
+  return `${style ? `整体风格：${style}。` : ''}${body}`
+}
+
+// 把会话最后一条分镜回复（或用户给的 brief）转成结构化 shots，供一键生成
+router.post('/agent/storyboard', authRequired, asyncHandler(async (req, res) => {
+  const { conversationId, brief = '', duration = 8 } = req.body
+  const seconds = [4, 8, 15, 30, 60].includes(Number(duration)) ? Number(duration) : 8
+  let source = String(brief || '').trim()
+  if (!source && conversationId) {
+    const conv = db.prepare('SELECT * FROM conversations WHERE id = ? AND owner_id = ?').get(conversationId, req.user.id)
+    if (!conv) return res.json(fail('会话不存在', 404))
+    source = db.prepare("SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1").get(conv.id)?.content || ''
+  }
+  if (!source) return res.json(fail('没有可转换的分镜内容，请先生成脚本或提供创作要求', 400))
+  if (!realEnabled()) return res.json(fail('AI 引擎未启用', 503))
+  try {
+    const text = await chatStreamToString([
+      { role: 'system', content: `你是短视频分镜导演。把输入整理成 JSON：{"visual_style":"统一视觉风格","shots":[{"seconds":2.5,"visual":"本镜画面与主体","action":"动作发展","camera":"运镜"}]}。镜头总时长必须等于 ${seconds} 秒，每镜 2-5 秒，首镜建立产品与环境，末镜稳定收尾。只输出 JSON，不要解释。` },
+      { role: 'user', content: source.slice(0, 3500) },
+    ])
+    const cleaned = text.replace(/```(?:json)?|```/g, '').trim()
+    const matched = cleaned.match(/\{[\s\S]*\}/)
+    if (!matched) return res.json(fail('分镜解析失败，请重试', 503))
+    const plan = JSON.parse(matched[0])
+    const shots = Array.isArray(plan.shots) ? plan.shots.filter((s) => s && s.visual).slice(0, 12) : []
+    if (!shots.length) return res.json(fail('分镜解析失败，请重试', 503))
+    const prompt = composeShotPrompt(typeof plan.visual_style === 'string' ? plan.visual_style.trim() : '', shots)
+    res.json(success({ shots, prompt, style: plan.visual_style || '', duration: seconds }))
+  } catch {
+    res.json(fail('分镜生成失败，请稍后重试', 503))
+  }
+}))
+
+// 一键送生成：把分镜 prompt 直接创建为素材场任务
+router.post('/agent/to-material', authRequired, asyncHandler(async (req, res) => {
+  const { prompt, duration = 8, ratio = '9:16', resolution = '720P', direction } = req.body
+  if (typeof prompt !== 'string' || !prompt.trim()) return res.json(fail('分镜描述为空', 400))
+  if (prompt.length > 2000) return res.json(fail('分镜描述超过 2000 字，请精简', 400))
+  if (![4, 8, 15, 30, 60].includes(Number(duration))) return res.json(fail('请选择支持的视频时长', 400))
+  if (!['9:16', '16:9', '1:1'].includes(ratio)) return res.json(fail('不支持的画幅', 400))
+  if (!['540P', '720P'].includes(resolution)) return res.json(fail('不支持的分辨率', 400))
+  if (!realEnabled()) return res.json(fail('AI 引擎尚未启用', 503))
+  const cost = mfCost('MiniMax-H3', resolution, Number(duration))
+  if (req.user.ai_points < cost) return res.json(fail(`AI点数不足，本次创作需 ${cost} 点，请联系管理员`, 400))
+  const task = createTask(req.user.id, 'materialField', {
+    prompt: prompt.trim(), refs: [], model: 'MiniMax-H3', ratio, resolution,
+    duration: Number(duration), direction: direction || undefined, source: 'agent',
+  }, cost)
+  res.json(success(task))
+}))
 
 export default router

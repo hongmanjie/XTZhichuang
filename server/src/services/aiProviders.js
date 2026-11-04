@@ -16,6 +16,7 @@ import { pipeline } from 'stream/promises'
 import dotenv from 'dotenv'
 import { FFMPEG, MEDIA_UPLOAD_DIR, localMediaPath, probeImage, probeMedia, trimVideo } from './mediaTools.js'
 import { validateH3Frames, validateH3Size } from './h3Spec.js'
+import { h3AlignmentInstruction } from './h3PromptSkill.js'
 import { embeddingProvider, directEmbedTexts, directEmbedImage, supportsImageEmbeddings } from './embeddingProvider.js'
 import { withSharedH3Lock } from './h3SharedLock.js'
 export { supportsImageEmbeddings }
@@ -575,7 +576,7 @@ export async function mgImageFuse({ imageUrl, prompt, size, attempts = 5, onProg
 //
 // 画幅必须写进描述：只给 size 不给构图说明时，模型会按横屏构图往竖屏里塞，
 // 结果是人物和商品并排、两侧被裁（768x1344 实测复现）。
-export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '', size } = {}) {
+export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '', size, task, numFrames } = {}) {
   let frame = ''
   if (Array.isArray(size) && size.length === 2 && Number.isFinite(size[0]) && Number.isFinite(size[1])) {
     const [height, width] = size
@@ -589,11 +590,8 @@ export function buildMiniMaxPrompt(prompt, { soundscape = '', music = '', size }
   // 调用方已经写了 [Shot N] 时不重复加。
   const head = /\[shot\s*1\]/i.test(prompt) ? '' : '[Shot 1] '
   const description = `${head}${frame ? `${frame}。` : ''}${prompt}`
-  return [
-    `integrated_multimodal_description: ${description}`,
-    `overall_soundscape: ${soundscape || '与画面内容匹配的真实环境音，自然克制，突出主体动作声'}`,
-    `non_diegetic_music: ${music || '轻快现代的电商风格背景音乐，节奏与画面剪辑点匹配，音量不抢主体'}`,
-  ].join('\n')
+  const alignment = h3AlignmentInstruction(task, prompt, numFrames)
+  return `${alignment}integrated_multimodal_description: ${description}\noverall_soundscape: ${soundscape || '与画面内容匹配的真实环境音，自然克制，突出主体动作声'}\nnon_diegetic_music: ${music || '轻快现代的电商风格背景音乐，节奏与画面剪辑点匹配，音量不抢主体'}`
 }
 
 // H3 每张卡的常驻显存已经接近满载（空载就占 13 GiB，峰值 22 GiB+），
@@ -607,7 +605,18 @@ function withH3Slot(run) {
 }
 
 export function mgVideoGen(params) {
-  return withH3Slot(() => withSharedH3Lock(() => mgVideoGenInner(params), {
+  return withH3Slot(() => withSharedH3Lock(async () => {
+    try {
+      return await mgVideoGenInner(params)
+    } catch (error) {
+      // fl2av 双图在 3090 节点会显存崩溃；单段生成失败后自动重提一次，让网关重新调度上游。
+      if (params?.autoRetryFl2av && !params?.retried && !params?.resumeTaskId && params?.task === 'fl2av' && error.code === 'MG_TASK_FAILED') {
+        console.warn(`[H3] fl2av 任务失败（${error.message}），自动重提一次以重新调度上游节点`)
+        return mgVideoGenInner({ ...params, retried: true, idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}-r1` : undefined })
+      }
+      throw error
+    }
+  }, {
     idempotencyKey: params?.idempotencyKey,
     onWait: () => params?.onProgress?.('queued'),
   }))
@@ -637,7 +646,7 @@ async function mgVideoGenInner({ prompt, soundscape, music, task = 't2av', size 
   // 只能把负面约束写进正向提示词。
   const guard = String(negativePrompt || DEFAULT_VIDEO_NEGATIVE).trim()
   const finalPrompt = guard ? `${prompt}。${guard}` : prompt
-  const body = { model, task, prompt: buildMiniMaxPrompt(finalPrompt, { soundscape, music, size: validatedSize }), size: validatedSize, num_frames: frames, fps }
+  const body = { model, task, prompt: buildMiniMaxPrompt(finalPrompt, { soundscape, music, size: validatedSize, task, numFrames: frames }), size: validatedSize, num_frames: frames, fps }
   if (!resumeTaskId && imageSrc) body.image_path = await toB64(imageSrc)
   if (!resumeTaskId && lastFrameSrc) body.last_frame_path = await toB64(lastFrameSrc)
   let taskId = resumeTaskId
